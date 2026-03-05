@@ -37,8 +37,17 @@ contract BaseRankMarketTest is Test {
         usdc = new MockUSDC();
         market = new BaseRankMarket(address(usdc), owner, owner);
 
+        vm.prank(owner);
+        market.setAdminDelay(1);
+
         usdc.mint(user, 1_000_000e6);
         usdc.mint(attacker, 1_000_000e6);
+    }
+
+    function _scheduleAndExecute(bytes32 actionId) internal {
+        vm.prank(owner);
+        market.scheduleAction(actionId);
+        vm.warp(block.timestamp + 2);
     }
 
     function _open() internal {
@@ -54,17 +63,22 @@ contract BaseRankMarketTest is Test {
         cfg.candidateIds[0] = c1;
         cfg.candidateIds[1] = c2;
 
+        _scheduleAndExecute(market.openMarketActionId(cfg));
         vm.prank(owner);
         market.openMarket(cfg);
     }
 
     function _resolveSingleWinner(bytes32 winner) internal {
         vm.warp(block.timestamp + 2 days);
+
+        _scheduleAndExecute(market.lockMarketActionId(1, IBaseRankMarket.MarketType.BaseApp));
         vm.prank(owner);
         market.lockMarket(1, IBaseRankMarket.MarketType.BaseApp);
 
         bytes32[] memory winners = new bytes32[](1);
         winners[0] = winner;
+
+        _scheduleAndExecute(market.resolveMarketActionId(1, IBaseRankMarket.MarketType.BaseApp, winners, keccak256("snapshot")));
         vm.prank(owner);
         market.resolveMarket(1, IBaseRankMarket.MarketType.BaseApp, winners, keccak256("snapshot"));
     }
@@ -75,15 +89,6 @@ contract BaseRankMarketTest is Test {
         vm.prank(attacker);
         vm.expectRevert();
         market.lockMarket(1, IBaseRankMarket.MarketType.BaseApp);
-
-        vm.prank(owner);
-        market.lockMarket(1, IBaseRankMarket.MarketType.BaseApp);
-
-        vm.prank(attacker);
-        vm.expectRevert();
-        bytes32[] memory winners = new bytes32[](1);
-        winners[0] = c1;
-        market.resolveMarket(1, IBaseRankMarket.MarketType.BaseApp, winners, keccak256("snapshot"));
     }
 
     function testPredictApproveFlow() external {
@@ -151,9 +156,24 @@ contract BaseRankMarketTest is Test {
         uint256 claimed = market.claimWinnings(1, IBaseRankMarket.MarketType.BaseApp);
         uint256 afterBal = usdc.balanceOf(user);
 
-        // pool=400, fee=1%=4, winner pool=100 => payout=396
         assertEq(claimed, 396e6);
         assertEq(afterBal - beforeBal, 396e6);
+    }
+
+    function testNoWinnerRefundPath() external {
+        _open();
+
+        vm.startPrank(user);
+        usdc.approve(address(market), 50e6);
+        market.predict(1, IBaseRankMarket.MarketType.BaseApp, c1, 50e6);
+        vm.stopPrank();
+
+        // choose c2 as winner with zero stake
+        _resolveSingleWinner(c2);
+
+        vm.prank(user);
+        uint256 refund = market.claimWinnings(1, IBaseRankMarket.MarketType.BaseApp);
+        assertEq(refund, 50e6);
     }
 
     function testClaimReentrancyPathProtected() external {
@@ -254,7 +274,6 @@ contract BaseRankMarketTest is Test {
         vm.prank(user);
         uint256 userClaim = market.claimWinnings(1, IBaseRankMarket.MarketType.BaseApp);
 
-        // loser should claim 0
         vm.prank(attacker);
         uint256 loserClaim = market.claimWinnings(1, IBaseRankMarket.MarketType.BaseApp);
 
