@@ -1,0 +1,18 @@
+{
+  "accountAssociation": {
+    "header": "",
+    "payload": "",
+    "signature": ""
+  },
+  "frame": {
+    "version": "1",
+    "name": "BaseRank",
+    "iconUrl": "https://baserank-miniapp.vercel.app/assets/icon-1024.png",
+    "homeUrl": "https://baserank-miniapp.vercel.app",
+    "imageUrl": "https://baserank-miniapp.vercel.app/assets/cover-1200x630.png",
+    "buttonTitle": "Predict",
+    "splashImageUrl": "https://baserank-miniapp.vercel.app/assets/icon-1024.png",
+    "splashBackgroundColor": "#0A0A0C",
+    "subtitle": "Predict the top-trending Base apps and earn USDC rewards for your onchain expertise."
+  }
+}
