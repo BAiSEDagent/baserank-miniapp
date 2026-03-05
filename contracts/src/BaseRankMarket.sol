@@ -56,6 +56,8 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
 
     uint16 public constant MAX_FEE_BPS = 500;
     uint256 public constant MIN_STAKE = 1e4; // 0.01 USDC (6 decimals)
+    uint256 public constant MIN_CANDIDATES = 15;
+    uint256 public constant MAX_CANDIDATES = 50;
 
     enum MarketState {
         None,
@@ -105,6 +107,7 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
     error InvalidAddress();
     error InvalidConfig();
     error InvalidState();
+    error InvalidTime();
     error InvalidAmount();
     error InvalidCandidate();
     error DuplicateCandidate();
@@ -142,8 +145,10 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
 
     function openMarket(MarketConfig calldata config) external onlyOwner {
         if (config.feeBps > MAX_FEE_BPS) revert InvalidConfig();
-        if (config.candidateIds.length == 0) revert InvalidConfig();
+        if (config.candidateIds.length < MIN_CANDIDATES || config.candidateIds.length > MAX_CANDIDATES) revert InvalidConfig();
         if (!(config.openTime < config.lockTime && config.lockTime < config.resolveTime)) revert InvalidConfig();
+        if (config.openTime < block.timestamp) revert InvalidTime();
+        if (config.lockTime <= block.timestamp) revert InvalidTime();
 
         Market storage m = _markets[config.epochId][config.marketType];
         if (m.state != uint8(MarketState.None)) revert InvalidState();

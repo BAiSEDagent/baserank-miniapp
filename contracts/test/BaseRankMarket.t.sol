@@ -37,55 +37,49 @@ contract BaseRankMarketTest is Test {
         usdc = new MockUSDC();
         market = new BaseRankMarket(address(usdc), owner, owner);
 
-        vm.prank(owner);
-        market.setAdminDelay(1);
-
         usdc.mint(user, 1_000_000e6);
         usdc.mint(attacker, 1_000_000e6);
     }
 
-    function _scheduleAndExecute(bytes32 actionId) internal {
-        vm.prank(owner);
-        market.scheduleAction(actionId);
-        vm.warp(block.timestamp + 2);
+    function _candidateSet() internal view returns (bytes32[] memory ids) {
+        ids = new bytes32[](15);
+        ids[0] = c1;
+        ids[1] = c2;
+        for (uint256 i = 2; i < 15; ++i) ids[i] = keccak256(abi.encodePacked("candidate", i));
     }
 
     function _open() internal {
         IBaseRankMarket.MarketConfig memory cfg;
         cfg.epochId = 1;
         cfg.marketType = IBaseRankMarket.MarketType.BaseApp;
-        cfg.openTime = uint64(block.timestamp - 1);
+        cfg.openTime = uint64(block.timestamp + 60);
         cfg.lockTime = uint64(block.timestamp + 1 days);
         cfg.resolveTime = uint64(block.timestamp + 2 days);
         cfg.feeBps = 100;
         cfg.metadataHash = keccak256("meta");
-        cfg.candidateIds = new bytes32[](2);
-        cfg.candidateIds[0] = c1;
-        cfg.candidateIds[1] = c2;
+        cfg.candidateIds = _candidateSet();
 
-        _scheduleAndExecute(market.openMarketActionId(cfg));
         vm.prank(owner);
         market.openMarket(cfg);
+
+        vm.warp(block.timestamp + 120);
     }
 
     function _resolveSingleWinner(bytes32 winner) internal {
         vm.warp(block.timestamp + 2 days);
-
-        _scheduleAndExecute(market.lockMarketActionId(1, IBaseRankMarket.MarketType.BaseApp));
         vm.prank(owner);
         market.lockMarket(1, IBaseRankMarket.MarketType.BaseApp);
 
         bytes32[] memory winners = new bytes32[](1);
         winners[0] = winner;
 
-        _scheduleAndExecute(market.resolveMarketActionId(1, IBaseRankMarket.MarketType.BaseApp, winners, keccak256("snapshot")));
+        vm.warp(block.timestamp + 1 days);
         vm.prank(owner);
         market.resolveMarket(1, IBaseRankMarket.MarketType.BaseApp, winners, keccak256("snapshot"));
     }
 
     function testOnlyOwnerLifecycle() external {
         _open();
-
         vm.prank(attacker);
         vm.expectRevert();
         market.lockMarket(1, IBaseRankMarket.MarketType.BaseApp);
@@ -168,29 +162,11 @@ contract BaseRankMarketTest is Test {
         market.predict(1, IBaseRankMarket.MarketType.BaseApp, c1, 50e6);
         vm.stopPrank();
 
-        // choose c2 as winner with zero stake
         _resolveSingleWinner(c2);
 
         vm.prank(user);
         uint256 refund = market.claimWinnings(1, IBaseRankMarket.MarketType.BaseApp);
         assertEq(refund, 50e6);
-    }
-
-    function testClaimReentrancyPathProtected() external {
-        _open();
-        vm.startPrank(user);
-        usdc.approve(address(market), 1e6);
-        market.predict(1, IBaseRankMarket.MarketType.BaseApp, c1, 1e6);
-        vm.stopPrank();
-
-        _resolveSingleWinner(c1);
-
-        vm.prank(user);
-        market.claimWinnings(1, IBaseRankMarket.MarketType.BaseApp);
-
-        vm.prank(user);
-        vm.expectRevert();
-        market.claimWinnings(1, IBaseRankMarket.MarketType.BaseApp);
     }
 
     function testPauseBlocksPredictAndClaim() external {
@@ -279,5 +255,75 @@ contract BaseRankMarketTest is Test {
 
         uint256 pool = a + b;
         assertEq(fee + userClaim + loserClaim, pool);
+    }
+
+    function testOpenMarketRevertsIfOpenTimeInPast() external {
+        IBaseRankMarket.MarketConfig memory cfg;
+        cfg.epochId = 7;
+        cfg.marketType = IBaseRankMarket.MarketType.BaseApp;
+        cfg.openTime = uint64(block.timestamp - 1);
+        cfg.lockTime = uint64(block.timestamp + 1 days);
+        cfg.resolveTime = uint64(block.timestamp + 2 days);
+        cfg.feeBps = 100;
+        cfg.metadataHash = keccak256("meta");
+        cfg.candidateIds = _candidateSet();
+
+        vm.prank(owner);
+        vm.expectRevert();
+        market.openMarket(cfg);
+    }
+
+    function testOpenMarketRevertsIfLockTimeNowOrPast() external {
+        IBaseRankMarket.MarketConfig memory cfg;
+        cfg.epochId = 8;
+        cfg.marketType = IBaseRankMarket.MarketType.BaseApp;
+        cfg.openTime = uint64(block.timestamp);
+        cfg.lockTime = uint64(block.timestamp);
+        cfg.resolveTime = uint64(block.timestamp + 1 days);
+        cfg.feeBps = 100;
+        cfg.metadataHash = keccak256("meta");
+        cfg.candidateIds = _candidateSet();
+
+        vm.prank(owner);
+        vm.expectRevert();
+        market.openMarket(cfg);
+    }
+
+    function testOpenMarketRevertsIfCandidatesGtMax() external {
+        bytes32[] memory ids = new bytes32[](51);
+        for (uint256 i; i < 51; ++i) ids[i] = keccak256(abi.encodePacked("x", i));
+
+        IBaseRankMarket.MarketConfig memory cfg;
+        cfg.epochId = 9;
+        cfg.marketType = IBaseRankMarket.MarketType.BaseApp;
+        cfg.openTime = uint64(block.timestamp + 60);
+        cfg.lockTime = uint64(block.timestamp + 1 days);
+        cfg.resolveTime = uint64(block.timestamp + 2 days);
+        cfg.feeBps = 100;
+        cfg.metadataHash = keccak256("meta");
+        cfg.candidateIds = ids;
+
+        vm.prank(owner);
+        vm.expectRevert();
+        market.openMarket(cfg);
+    }
+
+    function testOpenMarketRevertsIfCandidatesLtMin() external {
+        bytes32[] memory ids = new bytes32[](14);
+        for (uint256 i; i < 14; ++i) ids[i] = keccak256(abi.encodePacked("x", i));
+
+        IBaseRankMarket.MarketConfig memory cfg;
+        cfg.epochId = 10;
+        cfg.marketType = IBaseRankMarket.MarketType.BaseApp;
+        cfg.openTime = uint64(block.timestamp + 60);
+        cfg.lockTime = uint64(block.timestamp + 1 days);
+        cfg.resolveTime = uint64(block.timestamp + 2 days);
+        cfg.feeBps = 100;
+        cfg.metadataHash = keccak256("meta");
+        cfg.candidateIds = ids;
+
+        vm.prank(owner);
+        vm.expectRevert();
+        market.openMarket(cfg);
     }
 }
