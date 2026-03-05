@@ -12,34 +12,22 @@ import {
   useEnsName,
   useEnsAvatar,
   useBalance,
+  useSignTypedData,
+  useReadContract,
 } from 'wagmi'
 import { useWriteContracts } from 'wagmi/experimental'
-import { parseUnits, encodePacked, keccak256 } from 'viem'
+import { parseUnits, encodePacked, keccak256, parseSignature } from 'viem'
 import { base, baseSepolia } from 'wagmi/chains'
 import { BetSheet } from '@/components/bet-sheet'
 import { CountdownTimer } from '@/components/countdown-timer'
 import Image from 'next/image'
 import { requestBaseNotificationPermission } from '@/lib/notifications'
 import { motion } from 'framer-motion'
-
-const marketAbi = [
-  {
-    type: 'function',
-    name: 'stake',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'weekId', type: 'uint64' },
-      { name: 'tier', type: 'uint8' },
-      { name: 'appId', type: 'bytes32' },
-      { name: 'amount', type: 'uint256' },
-    ],
-    outputs: [],
-  },
-] as const
+import { BaseRankMarketABI } from '@/lib/contracts/BaseRankMarketABI'
 
 const MARKET_ADDRESS = process.env.NEXT_PUBLIC_MARKET_ADDRESS as `0x${string}` | undefined
 const WEEK_ID = BigInt(1)
-const TARGET_CHAIN = base.id
+const TARGET_CHAIN = baseSepolia.id
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const
 const USDC_BASE_SEPOLIA = '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as const
 
@@ -72,6 +60,7 @@ export default function Home() {
   const { switchChain } = useSwitchChain()
   const { writeContractAsync, data: hash, isPending: isTxSending } = useWriteContract()
   const { writeContractsAsync } = useWriteContracts()
+  const { signTypedDataAsync } = useSignTypedData()
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash })
 
   const { data: ensNameRaw } = useEnsName({ address, chainId: 1, query: { enabled: !!address } })
@@ -83,6 +72,22 @@ export default function Home() {
     token: usdcAddress,
     chainId: chainId === base.id ? base.id : baseSepolia.id,
     query: { enabled: !!address },
+  })
+  const { data: permitNonce } = useReadContract({
+    address: USDC_BASE_SEPOLIA,
+    abi: [
+      {
+        type: 'function',
+        name: 'nonces',
+        stateMutability: 'view',
+        inputs: [{ name: 'owner', type: 'address' }],
+        outputs: [{ name: '', type: 'uint256' }],
+      },
+    ] as const,
+    functionName: 'nonces',
+    args: address ? [address] : undefined,
+    chainId: baseSepolia.id,
+    query: { enabled: !!address && chainId === baseSepolia.id },
   })
 
   const [open, setOpen] = useState(false)
@@ -185,15 +190,45 @@ export default function Home() {
 
       setTxStep('submitting')
 
-      // Attempt sponsored tx first (EIP-5792), then gracefully fallback.
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
+      const nonce = typeof permitNonce === 'bigint' ? permitNonce : BigInt(0)
+
+      // Attempt permit path first for 1-click UX.
       try {
+        const signature = await signTypedDataAsync({
+          domain: {
+            name: 'USD Coin',
+            version: '2',
+            chainId: 84532,
+            verifyingContract: USDC_BASE_SEPOLIA,
+          },
+          types: {
+            Permit: [
+              { name: 'owner', type: 'address' },
+              { name: 'spender', type: 'address' },
+              { name: 'value', type: 'uint256' },
+              { name: 'nonce', type: 'uint256' },
+              { name: 'deadline', type: 'uint256' },
+            ],
+          },
+          primaryType: 'Permit',
+          message: {
+            owner: address as `0x${string}`,
+            spender: MARKET_ADDRESS,
+            value,
+            nonce,
+            deadline,
+          },
+        })
+        const { v, r, s } = parseSignature(signature)
+
         await writeContractsAsync({
           contracts: [
             {
               address: MARKET_ADDRESS,
-              abi: marketAbi,
-              functionName: 'stake',
-              args: [WEEK_ID, tier, appId, value],
+              abi: BaseRankMarketABI,
+              functionName: 'predictWithPermit',
+              args: [WEEK_ID, marketType === 'app' ? 0 : 1, appId, value, { value, deadline, v, r, s }],
             },
           ],
           capabilities: {
@@ -203,13 +238,13 @@ export default function Home() {
           },
         })
       } catch {
-        setToast('Sponsored gas unavailable — using network fee')
+        setToast('Permit/sponsored path unavailable — using network fee')
         setTimeout(() => setToast(''), 2200)
         await writeContractAsync({
           address: MARKET_ADDRESS,
-          abi: marketAbi,
-          functionName: 'stake',
-          args: [WEEK_ID, tier, appId, value],
+          abi: BaseRankMarketABI,
+          functionName: 'predict',
+          args: [WEEK_ID, marketType === 'app' ? 0 : 1, appId, value],
           chainId: TARGET_CHAIN,
         })
       }
