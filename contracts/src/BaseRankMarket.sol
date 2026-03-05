@@ -87,7 +87,8 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
     mapping(uint64 => mapping(MarketType => bytes32[])) public candidateList;
 
     mapping(uint64 => mapping(MarketType => mapping(bytes32 => uint256))) public poolByCandidate;
-    mapping(uint64 => mapping(MarketType => mapping(address => mapping(bytes32 => uint256)))) public userStakeByCandidate;
+    mapping(uint64 => mapping(MarketType => mapping(address => mapping(bytes32 => uint256)))) public
+        userStakeByCandidate;
     mapping(uint64 => mapping(MarketType => mapping(address => uint256))) public userTotalStake;
 
     mapping(uint64 => mapping(MarketType => bytes32[])) public winnerList;
@@ -97,11 +98,17 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
     mapping(uint64 => mapping(MarketType => bool)) public feeCollected;
 
     event FeeRecipientUpdated(address indexed newRecipient);
-    event FeeCollected(uint64 indexed epochId, MarketType indexed marketType, uint256 feeAmount, address indexed recipient);
+    event FeeCollected(
+        uint64 indexed epochId, MarketType indexed marketType, uint256 feeAmount, address indexed recipient
+    );
     event MarketOpened(uint64 indexed epochId, MarketType indexed marketType, uint64 lockTime, uint64 resolveTime);
     event MarketLocked(uint64 indexed epochId, MarketType indexed marketType);
-    event MarketResolved(uint64 indexed epochId, MarketType indexed marketType, bytes32[] winners, bytes32 snapshotHash);
-    event Predicted(uint64 indexed epochId, MarketType indexed marketType, address indexed user, bytes32 candidateId, uint256 amount);
+    event MarketResolved(
+        uint64 indexed epochId, MarketType indexed marketType, bytes32[] winners, bytes32 snapshotHash
+    );
+    event Predicted(
+        uint64 indexed epochId, MarketType indexed marketType, address indexed user, bytes32 candidateId, uint256 amount
+    );
     event WinningsClaimed(uint64 indexed epochId, MarketType indexed marketType, address indexed user, uint256 amount);
 
     error InvalidAddress();
@@ -145,7 +152,9 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
 
     function openMarket(MarketConfig calldata config) external onlyOwner {
         if (config.feeBps > MAX_FEE_BPS) revert InvalidConfig();
-        if (config.candidateIds.length < MIN_CANDIDATES || config.candidateIds.length > MAX_CANDIDATES) revert InvalidConfig();
+        if (config.candidateIds.length < MIN_CANDIDATES || config.candidateIds.length > MAX_CANDIDATES) {
+            revert InvalidConfig();
+        }
         if (!(config.openTime < config.lockTime && config.lockTime < config.resolveTime)) revert InvalidConfig();
         if (config.openTime < block.timestamp) revert InvalidTime();
         if (config.lockTime <= block.timestamp) revert InvalidTime();
@@ -227,20 +236,15 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
     ) external nonReentrant whenNotPaused {
         if (permit.value < amount) revert PermitValueTooLow();
 
-        IERC20Permit(address(usdc)).permit(
-            msg.sender,
-            address(this),
-            permit.value,
-            permit.deadline,
-            permit.v,
-            permit.r,
-            permit.s
-        );
+        IERC20Permit(address(usdc))
+            .permit(msg.sender, address(this), permit.value, permit.deadline, permit.v, permit.r, permit.s);
 
         _predict(epochId, marketType, candidateId, amount, msg.sender);
     }
 
-    function _predict(uint64 epochId, MarketType marketType, bytes32 candidateId, uint256 amount, address sender) internal {
+    function _predict(uint64 epochId, MarketType marketType, bytes32 candidateId, uint256 amount, address sender)
+        internal
+    {
         if (amount < MIN_STAKE) revert InvalidAmount();
         if (!isCandidate[epochId][marketType][candidateId]) revert InvalidCandidate();
 
@@ -278,7 +282,12 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
         emit WinningsClaimed(epochId, marketType, msg.sender, amount);
     }
 
-    function collectFee(uint64 epochId, MarketType marketType) external onlyOwner nonReentrant returns (uint256 feeAmount) {
+    function collectFee(uint64 epochId, MarketType marketType)
+        external
+        onlyOwner
+        nonReentrant
+        returns (uint256 feeAmount)
+    {
         Market storage m = _markets[epochId][marketType];
         if (m.state != uint8(MarketState.Resolved)) revert InvalidState();
         if (feeCollected[epochId][marketType]) revert FeeAlreadyCollected();

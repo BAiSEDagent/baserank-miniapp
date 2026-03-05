@@ -45,7 +45,9 @@ contract BaseRankMarketTest is Test {
         ids = new bytes32[](15);
         ids[0] = c1;
         ids[1] = c2;
-        for (uint256 i = 2; i < 15; ++i) ids[i] = keccak256(abi.encodePacked("candidate", i));
+        for (uint256 i = 2; i < 15; ++i) {
+            ids[i] = keccak256(abi.encodePacked("candidate", i));
+        }
     }
 
     function _open() internal {
@@ -116,13 +118,8 @@ contract BaseRankMarketTest is Test {
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", usdc.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(userPk, digest);
 
-        IBaseRankMarket.PermitParams memory p = IBaseRankMarket.PermitParams({
-            value: amount,
-            deadline: deadline,
-            v: v,
-            r: r,
-            s: s
-        });
+        IBaseRankMarket.PermitParams memory p =
+            IBaseRankMarket.PermitParams({value: amount, deadline: deadline, v: v, r: r, s: s});
 
         vm.prank(user);
         market.predictWithPermit(1, IBaseRankMarket.MarketType.BaseApp, c1, amount, p);
@@ -291,7 +288,9 @@ contract BaseRankMarketTest is Test {
 
     function testOpenMarketRevertsIfCandidatesGtMax() external {
         bytes32[] memory ids = new bytes32[](51);
-        for (uint256 i; i < 51; ++i) ids[i] = keccak256(abi.encodePacked("x", i));
+        for (uint256 i; i < 51; ++i) {
+            ids[i] = keccak256(abi.encodePacked("x", i));
+        }
 
         IBaseRankMarket.MarketConfig memory cfg;
         cfg.epochId = 9;
@@ -310,7 +309,9 @@ contract BaseRankMarketTest is Test {
 
     function testOpenMarketRevertsIfCandidatesLtMin() external {
         bytes32[] memory ids = new bytes32[](14);
-        for (uint256 i; i < 14; ++i) ids[i] = keccak256(abi.encodePacked("x", i));
+        for (uint256 i; i < 14; ++i) {
+            ids[i] = keccak256(abi.encodePacked("x", i));
+        }
 
         IBaseRankMarket.MarketConfig memory cfg;
         cfg.epochId = 10;
