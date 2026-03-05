@@ -55,6 +55,7 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
     using SafeERC20 for IERC20;
 
     uint16 public constant MAX_FEE_BPS = 500;
+    uint256 public constant MIN_STAKE = 1e4; // 0.01 USDC (6 decimals)
 
     enum MarketState {
         None,
@@ -79,9 +80,6 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
     IERC20 public immutable usdc;
     address public feeRecipient;
 
-    uint64 public adminDelay = 1 hours;
-    mapping(bytes32 => uint64) public scheduledFor;
-
     mapping(uint64 => mapping(MarketType => Market)) internal _markets;
     mapping(uint64 => mapping(MarketType => mapping(bytes32 => bool))) public isCandidate;
     mapping(uint64 => mapping(MarketType => bytes32[])) public candidateList;
@@ -95,21 +93,14 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
 
     mapping(uint64 => mapping(MarketType => mapping(address => bool))) public claimed;
     mapping(uint64 => mapping(MarketType => bool)) public feeCollected;
-    mapping(uint64 => mapping(MarketType => uint64)) public finalizedAt;
 
     event FeeRecipientUpdated(address indexed newRecipient);
     event FeeCollected(uint64 indexed epochId, MarketType indexed marketType, uint256 feeAmount, address indexed recipient);
-    event ResidualSwept(uint64 indexed epochId, MarketType indexed marketType, uint256 amount, address indexed recipient);
     event MarketOpened(uint64 indexed epochId, MarketType indexed marketType, uint64 lockTime, uint64 resolveTime);
     event MarketLocked(uint64 indexed epochId, MarketType indexed marketType);
     event MarketResolved(uint64 indexed epochId, MarketType indexed marketType, bytes32[] winners, bytes32 snapshotHash);
     event Predicted(uint64 indexed epochId, MarketType indexed marketType, address indexed user, bytes32 candidateId, uint256 amount);
     event WinningsClaimed(uint64 indexed epochId, MarketType indexed marketType, address indexed user, uint256 amount);
-
-    event ActionScheduled(bytes32 indexed actionId, uint64 executeAfter);
-    event ActionCancelled(bytes32 indexed actionId);
-    event ActionConsumed(bytes32 indexed actionId);
-    event AdminDelayUpdated(uint64 newDelay);
 
     error InvalidAddress();
     error InvalidConfig();
@@ -121,80 +112,12 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
     error NoWinners();
     error AlreadyClaimed();
     error FeeAlreadyCollected();
-    error ActionNotScheduled();
-    error ActionNotReady();
-    error ActionAlreadyScheduled();
-    error InvalidDelay();
+    error PermitValueTooLow();
 
     constructor(address usdc_, address owner_, address feeRecipient_) Ownable(owner_) {
         if (usdc_ == address(0) || owner_ == address(0) || feeRecipient_ == address(0)) revert InvalidAddress();
         usdc = IERC20(usdc_);
         feeRecipient = feeRecipient_;
-    }
-
-    // -------- Admin scheduling (timelock-lite) --------
-
-    function scheduleAction(bytes32 actionId) external onlyOwner {
-        if (scheduledFor[actionId] != 0) revert ActionAlreadyScheduled();
-        uint64 eta = uint64(block.timestamp) + adminDelay;
-        scheduledFor[actionId] = eta;
-        emit ActionScheduled(actionId, eta);
-    }
-
-    function cancelAction(bytes32 actionId) external onlyOwner {
-        if (scheduledFor[actionId] == 0) revert ActionNotScheduled();
-        delete scheduledFor[actionId];
-        emit ActionCancelled(actionId);
-    }
-
-    function setAdminDelay(uint64 newDelay) external onlyOwner {
-        if (newDelay == 0 || newDelay > 30 days) revert InvalidDelay();
-        adminDelay = newDelay;
-        emit AdminDelayUpdated(newDelay);
-    }
-
-    function openMarketActionId(MarketConfig memory config) public pure returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                "openMarket",
-                config.epochId,
-                config.marketType,
-                config.openTime,
-                config.lockTime,
-                config.resolveTime,
-                config.feeBps,
-                config.candidateIds,
-                config.metadataHash
-            )
-        );
-    }
-
-    function lockMarketActionId(uint64 epochId, MarketType marketType) public pure returns (bytes32) {
-        return keccak256(abi.encode("lockMarket", epochId, marketType));
-    }
-
-    function resolveMarketActionId(uint64 epochId, MarketType marketType, bytes32[] memory winnerIds, bytes32 snapshotHash)
-        public
-        pure
-        returns (bytes32)
-    {
-        return keccak256(abi.encode("resolveMarket", epochId, marketType, winnerIds, snapshotHash));
-    }
-
-    function setFeeRecipientActionId(address newFeeRecipient) public pure returns (bytes32) {
-        return keccak256(abi.encode("setFeeRecipient", newFeeRecipient));
-    }
-
-    function setFeeBpsActionId(uint16 newFeeBps) public pure returns (bytes32) {
-        return keccak256(abi.encode("setFeeBps", newFeeBps));
-    }
-
-    function _consumeAction(bytes32 actionId) internal {
-        uint64 eta = scheduledFor[actionId];
-        if (eta == 0) revert ActionNotScheduled();
-        if (block.timestamp < eta) revert ActionNotReady();
-        delete scheduledFor[actionId];
-        emit ActionConsumed(actionId);
     }
 
     // -------- Emergency controls --------
@@ -211,14 +134,8 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
 
     function setFeeRecipient(address newFeeRecipient) external onlyOwner {
         if (newFeeRecipient == address(0)) revert InvalidAddress();
-        _consumeAction(setFeeRecipientActionId(newFeeRecipient));
         feeRecipient = newFeeRecipient;
         emit FeeRecipientUpdated(newFeeRecipient);
-    }
-
-    function setFeeBps(uint16 newFeeBps) external onlyOwner {
-        if (newFeeBps > MAX_FEE_BPS) revert InvalidConfig();
-        _consumeAction(setFeeBpsActionId(newFeeBps));
     }
 
     // -------- Market lifecycle --------
@@ -227,22 +144,6 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
         if (config.feeBps > MAX_FEE_BPS) revert InvalidConfig();
         if (config.candidateIds.length == 0) revert InvalidConfig();
         if (!(config.openTime < config.lockTime && config.lockTime < config.resolveTime)) revert InvalidConfig();
-
-        _consumeAction(
-            keccak256(
-                abi.encode(
-                    "openMarket",
-                    config.epochId,
-                    config.marketType,
-                    config.openTime,
-                    config.lockTime,
-                    config.resolveTime,
-                    config.feeBps,
-                    config.candidateIds,
-                    config.metadataHash
-                )
-            )
-        );
 
         Market storage m = _markets[config.epochId][config.marketType];
         if (m.state != uint8(MarketState.None)) revert InvalidState();
@@ -267,10 +168,9 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
     }
 
     function lockMarket(uint64 epochId, MarketType marketType) external onlyOwner {
-        _consumeAction(lockMarketActionId(epochId, marketType));
-
         Market storage m = _markets[epochId][marketType];
         if (m.state != uint8(MarketState.Open)) revert InvalidState();
+        if (block.timestamp < m.lockTime) revert InvalidState();
         m.state = uint8(MarketState.Locked);
         emit MarketLocked(epochId, marketType);
     }
@@ -279,10 +179,9 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
         external
         onlyOwner
     {
-        _consumeAction(keccak256(abi.encode("resolveMarket", epochId, marketType, winnerIds, snapshotHash)));
-
         Market storage m = _markets[epochId][marketType];
         if (m.state != uint8(MarketState.Locked)) revert InvalidState();
+        if (block.timestamp < m.resolveTime) revert InvalidState();
         if (winnerIds.length == 0) revert NoWinners();
 
         uint256 totalWinning;
@@ -300,7 +199,6 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
         m.snapshotHash = snapshotHash;
         m.totalWinningPool = totalWinning;
         m.isRefund = (totalWinning == 0);
-        finalizedAt[epochId][marketType] = uint64(block.timestamp);
 
         emit MarketResolved(epochId, marketType, winnerIds, snapshotHash);
     }
@@ -322,6 +220,8 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
         uint256 amount,
         PermitParams calldata permit
     ) external nonReentrant whenNotPaused {
+        if (permit.value < amount) revert PermitValueTooLow();
+
         IERC20Permit(address(usdc)).permit(
             msg.sender,
             address(this),
@@ -336,7 +236,7 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
     }
 
     function _predict(uint64 epochId, MarketType marketType, bytes32 candidateId, uint256 amount, address sender) internal {
-        if (amount == 0) revert InvalidAmount();
+        if (amount < MIN_STAKE) revert InvalidAmount();
         if (!isCandidate[epochId][marketType][candidateId]) revert InvalidCandidate();
 
         Market storage m = _markets[epochId][marketType];
@@ -385,19 +285,6 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
         }
 
         emit FeeCollected(epochId, marketType, feeAmount, feeRecipient);
-    }
-
-    function sweepResidual(uint64 epochId, MarketType marketType) external onlyOwner nonReentrant returns (uint256 swept) {
-        Market storage m = _markets[epochId][marketType];
-        if (m.state != uint8(MarketState.Resolved)) revert InvalidState();
-        if (block.timestamp < uint256(finalizedAt[epochId][marketType]) + 30 days) revert InvalidState();
-
-        uint256 contractBal = usdc.balanceOf(address(this));
-        swept = contractBal;
-        if (swept > 0) {
-            usdc.safeTransfer(feeRecipient, swept);
-        }
-        emit ResidualSwept(epochId, marketType, swept, feeRecipient);
     }
 
     // -------- Views --------
