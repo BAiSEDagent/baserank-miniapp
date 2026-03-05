@@ -68,6 +68,7 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
         uint64 resolveTime;
         uint16 feeBps;
         uint8 state;
+        bool isRefund;
         bytes32 metadataHash;
         bytes32 snapshotHash;
         uint256 totalPool;
@@ -83,6 +84,7 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
 
     mapping(uint64 => mapping(MarketType => mapping(bytes32 => uint256))) public poolByCandidate;
     mapping(uint64 => mapping(MarketType => mapping(address => mapping(bytes32 => uint256)))) public userStakeByCandidate;
+    mapping(uint64 => mapping(MarketType => mapping(address => uint256))) public userTotalStake;
 
     mapping(uint64 => mapping(MarketType => bytes32[])) public winnerList;
     mapping(uint64 => mapping(MarketType => mapping(bytes32 => bool))) public isWinner;
@@ -182,11 +184,10 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
             totalWinning += poolByCandidate[epochId][marketType][w];
         }
 
-        if (totalWinning == 0) revert NoWinners();
-
         m.state = uint8(MarketState.Resolved);
         m.snapshotHash = snapshotHash;
         m.totalWinningPool = totalWinning;
+        m.isRefund = (totalWinning == 0);
 
         emit MarketResolved(epochId, marketType, winnerIds, snapshotHash);
     }
@@ -197,7 +198,7 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
         if (feeCollected[epochId][marketType]) revert FeeAlreadyCollected();
 
         feeCollected[epochId][marketType] = true;
-        feeAmount = (m.totalPool * m.feeBps) / 10_000;
+        feeAmount = m.isRefund ? 0 : (m.totalPool * m.feeBps) / 10_000;
         if (feeAmount > 0) {
             usdc.safeTransfer(feeRecipient, feeAmount);
         }
@@ -242,6 +243,7 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
         if (block.timestamp < m.openTime || block.timestamp >= m.lockTime) revert InvalidState();
 
         userStakeByCandidate[epochId][marketType][sender][candidateId] += amount;
+        userTotalStake[epochId][marketType][sender] += amount;
         poolByCandidate[epochId][marketType][candidateId] += amount;
         m.totalPool += amount;
 
@@ -281,6 +283,10 @@ contract BaseRankMarket is IBaseRankMarket, Ownable2Step, Pausable, ReentrancyGu
         view
         returns (uint256)
     {
+        if (m.isRefund) {
+            return userTotalStake[epochId][marketType][user];
+        }
+
         uint256 userWinningStake;
         bytes32[] storage winners = winnerList[epochId][marketType];
         for (uint256 i; i < winners.length; ++i) {
