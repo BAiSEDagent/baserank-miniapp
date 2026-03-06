@@ -29,7 +29,7 @@ const _raw = process.env.NEXT_PUBLIC_MARKET_ADDRESS
 const MARKET_ADDRESS: `0x${string}` | undefined = _raw
   ? (() => { try { return getAddress(_raw) } catch { return _raw as `0x${string}` } })()
   : undefined
-const WEEK_ID = BigInt(1)
+const WEEK_ID = BigInt(20260305)
 const TARGET_CHAIN = baseSepolia.id
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const
 const USDC_BASE_SEPOLIA = '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as const
