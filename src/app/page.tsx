@@ -29,8 +29,8 @@ const _raw = process.env.NEXT_PUBLIC_MARKET_ADDRESS
 const MARKET_ADDRESS: `0x${string}` | undefined = _raw
   ? (() => { try { return getAddress(_raw) } catch { return _raw as `0x${string}` } })()
   : undefined
-const WEEK_ID = BigInt(20260305)
-const TARGET_CHAIN = baseSepolia.id
+const WEEK_ID = BigInt(20260306)
+const TARGET_CHAIN = base.id
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const
 const USDC_BASE_SEPOLIA = '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as const
 
@@ -77,7 +77,7 @@ export default function Home() {
     query: { enabled: !!address },
   })
   const { data: permitNonce } = useReadContract({
-    address: USDC_BASE_SEPOLIA,
+    address: USDC_BASE,
     abi: [
       {
         type: 'function',
@@ -89,8 +89,8 @@ export default function Home() {
     ] as const,
     functionName: 'nonces',
     args: address ? [address] : undefined,
-    chainId: baseSepolia.id,
-    query: { enabled: !!address && chainId === baseSepolia.id },
+    chainId: base.id,
+    query: { enabled: !!address && chainId === base.id },
   })
 
   const [open, setOpen] = useState(false)
@@ -204,8 +204,8 @@ export default function Home() {
             domain: {
               name: 'USD Coin',
               version: '2',
-              chainId: 84532,
-              verifyingContract: USDC_BASE_SEPOLIA,
+              chainId: base.id,
+              verifyingContract: USDC_BASE,
             },
             types: {
               Permit: [
