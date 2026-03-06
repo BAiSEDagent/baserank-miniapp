@@ -12,12 +12,18 @@ function isAllowedOrigin(req: NextRequest) {
   const referer = req.headers.get('referer')
   const hostOrigin = req.nextUrl.origin
 
+  // Some wallet contexts/proxies may omit origin+referer.
+  // For paymaster RPC allowlist, treat missing origin metadata as allowed.
+  if (!origin && !referer) return true
+
   const allowed = new Set([
     hostOrigin,
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'https://base.dev',
     'https://www.base.dev',
+    'https://farcaster.xyz',
+    'https://www.farcaster.xyz',
   ])
 
   if (origin && allowed.has(origin)) return true
