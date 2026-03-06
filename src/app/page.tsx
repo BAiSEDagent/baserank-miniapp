@@ -268,8 +268,12 @@ export default function Home() {
         })
       }
       setOpen(false)
-    } catch {
+    } catch (err) {
+      console.error('[tx_failed]', err)
+      const msg = err instanceof Error ? err.message : String(err)
       setTxStep('error')
+      setToast(`Transaction failed: ${msg.slice(0, 80)}`)
+      setTimeout(() => setToast(''), 4000)
     }
   }
 
