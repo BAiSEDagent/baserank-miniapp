@@ -13,12 +13,14 @@
     "buttonTitle": "Predict",
     "splashImageUrl": "https://baserank-miniapp.vercel.app/assets/icon-1024.png",
     "splashBackgroundColor": "#0A0A0C",
-    "subtitle": "Predict Base apps for USDC.",
+    "subtitle": "Predict Base apps for USDC",
     "description": "Predict which Base apps will rank highest and earn USDC rewards for correct calls.",
     "primaryCategory": "finance",
     "tags": ["base", "prediction", "leaderboard", "usdc"],
     "screenshotUrls": [
-      "https://baserank-miniapp.vercel.app/assets/cover-1200x630.png"
+      "https://baserank-miniapp.vercel.app/assets/screenshot-1-1284x2778.png",
+      "https://baserank-miniapp.vercel.app/assets/screenshot-2-1284x2778.png",
+      "https://baserank-miniapp.vercel.app/assets/screenshot-3-1284x2778.png"
     ],
     "heroImageUrl": "https://baserank-miniapp.vercel.app/assets/cover-1200x630.png",
     "tagline": "Predict Base app momentum.",
