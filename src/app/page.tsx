@@ -251,8 +251,14 @@ export default function Home() {
         }
       } catch (err) {
         const reason = err instanceof Error ? err.message : 'unknown_sponsored_path_error'
-        setToast(`Sponsored path unavailable (${reason}) — using network fee`)
-        setTimeout(() => setToast(''), 3200)
+        const fallbackMsg =
+          reason === 'permit_sign_failed'
+            ? 'Using standard transaction path for this wallet environment'
+            : reason === 'sponsored_send_failed'
+              ? 'Gas sponsorship unavailable right now — using standard transaction path'
+              : 'Using standard transaction path'
+        setToast(fallbackMsg)
+        setTimeout(() => setToast(''), 2600)
         await writeContractAsync({
           address: MARKET_ADDRESS,
           abi: BaseRankMarketABI,
