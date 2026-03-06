@@ -195,51 +195,64 @@ export default function Home() {
 
       // Attempt permit path first for 1-click UX.
       try {
-        const signature = await signTypedDataAsync({
-          domain: {
-            name: 'USD Coin',
-            version: '2',
-            chainId: 84532,
-            verifyingContract: USDC_BASE_SEPOLIA,
-          },
-          types: {
-            Permit: [
-              { name: 'owner', type: 'address' },
-              { name: 'spender', type: 'address' },
-              { name: 'value', type: 'uint256' },
-              { name: 'nonce', type: 'uint256' },
-              { name: 'deadline', type: 'uint256' },
-            ],
-          },
-          primaryType: 'Permit',
-          message: {
-            owner: address as `0x${string}`,
-            spender: MARKET_ADDRESS,
-            value,
-            nonce,
-            deadline,
-          },
-        })
+        let signature: `0x${string}`
+        try {
+          signature = await signTypedDataAsync({
+            domain: {
+              name: 'USD Coin',
+              version: '2',
+              chainId: 84532,
+              verifyingContract: USDC_BASE_SEPOLIA,
+            },
+            types: {
+              Permit: [
+                { name: 'owner', type: 'address' },
+                { name: 'spender', type: 'address' },
+                { name: 'value', type: 'uint256' },
+                { name: 'nonce', type: 'uint256' },
+                { name: 'deadline', type: 'uint256' },
+              ],
+            },
+            primaryType: 'Permit',
+            message: {
+              owner: address as `0x${string}`,
+              spender: MARKET_ADDRESS,
+              value,
+              nonce,
+              deadline,
+            },
+          })
+        } catch (err) {
+          console.error('[permit_sign_failed]', err)
+          throw new Error('permit_sign_failed')
+        }
+
         const { v, r, s } = parseSignature(signature)
 
-        await writeContractsAsync({
-          contracts: [
-            {
-              address: MARKET_ADDRESS,
-              abi: BaseRankMarketABI,
-              functionName: 'predictWithPermit',
-              args: [WEEK_ID, marketType === 'app' ? 0 : 1, appId, value, { value, deadline, v, r, s }],
+        try {
+          await writeContractsAsync({
+            contracts: [
+              {
+                address: MARKET_ADDRESS,
+                abi: BaseRankMarketABI,
+                functionName: 'predictWithPermit',
+                args: [WEEK_ID, marketType === 'app' ? 0 : 1, appId, value, { value, deadline, v, r, s }],
+              },
+            ],
+            capabilities: {
+              paymasterService: {
+                url: '/api/paymaster',
+              },
             },
-          ],
-          capabilities: {
-            paymasterService: {
-              url: '/api/paymaster',
-            },
-          },
-        })
-      } catch {
-        setToast('Sponsored path unavailable in this wallet/environment — using network fee')
-        setTimeout(() => setToast(''), 2200)
+          })
+        } catch (err) {
+          console.error('[sponsored_send_failed]', err)
+          throw new Error('sponsored_send_failed')
+        }
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : 'unknown_sponsored_path_error'
+        setToast(`Sponsored path unavailable (${reason}) — using network fee`)
+        setTimeout(() => setToast(''), 3200)
         await writeContractAsync({
           address: MARKET_ADDRESS,
           abi: BaseRankMarketABI,
