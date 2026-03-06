@@ -59,8 +59,8 @@ contract OpenMarkets is Script {
         coinCandidates[19] = keccak256(abi.encodePacked("coin:Virtuals"));
 
         uint64 epochId = 20260306;
-        // +5 min buffer: guarantees openTime > block.timestamp at execution
-        uint64 openTime    = uint64(block.timestamp + 5 minutes);
+        // +30 min buffer: guarantees openTime > block.timestamp even under network congestion
+        uint64 openTime    = uint64(block.timestamp + 30 minutes);
         uint64 lockTime    = uint64(openTime + 6 days);
         uint64 resolveTime = uint64(lockTime + 1 days);
         uint16 feeBps      = 200; // 2%
