@@ -13,7 +13,7 @@
     "buttonTitle": "Predict",
     "splashImageUrl": "https://baserank-miniapp.vercel.app/assets/icon-1024.png",
     "splashBackgroundColor": "#0A0A0C",
-    "subtitle": "Predict top Base apps for USDC.",
+    "subtitle": "Predict Base apps for USDC.",
     "description": "Predict which Base apps will rank highest and earn USDC rewards for correct calls.",
     "primaryCategory": "finance",
     "tags": ["base", "prediction", "leaderboard", "usdc"],
