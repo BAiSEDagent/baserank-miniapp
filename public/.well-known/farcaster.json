@@ -25,6 +25,7 @@
     "ogTitle": "BaseRank",
     "ogDescription": "Predict top Base apps and earn USDC rewards.",
     "ogImageUrl": "https://baserank-miniapp.vercel.app/assets/cover-1200x630.png",
+    "webhookUrl": "https://baserank-miniapp.vercel.app/api/webhook/notifications",
     "noindex": false
   }
 }
