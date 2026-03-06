@@ -16,7 +16,7 @@ import {
   useReadContract,
 } from 'wagmi'
 import { useWriteContracts } from 'wagmi/experimental'
-import { parseUnits, encodePacked, keccak256, parseSignature } from 'viem'
+import { parseUnits, encodePacked, keccak256, parseSignature, getAddress } from 'viem'
 import { base, baseSepolia } from 'wagmi/chains'
 import { BetSheet } from '@/components/bet-sheet'
 import { CountdownTimer } from '@/components/countdown-timer'
@@ -25,7 +25,9 @@ import { requestBaseNotificationPermission } from '@/lib/notifications'
 import { motion } from 'framer-motion'
 import { BaseRankMarketABI } from '@/lib/contracts/BaseRankMarketABI'
 
-const MARKET_ADDRESS = process.env.NEXT_PUBLIC_MARKET_ADDRESS as `0x${string}` | undefined
+const MARKET_ADDRESS = process.env.NEXT_PUBLIC_MARKET_ADDRESS
+  ? getAddress(process.env.NEXT_PUBLIC_MARKET_ADDRESS)
+  : undefined
 const WEEK_ID = BigInt(1)
 const TARGET_CHAIN = baseSepolia.id
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const
