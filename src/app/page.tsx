@@ -238,7 +238,7 @@ export default function Home() {
           },
         })
       } catch {
-        setToast('Permit/sponsored path unavailable — using network fee')
+        setToast('Sponsored path unavailable in this wallet/environment — using network fee')
         setTimeout(() => setToast(''), 2200)
         await writeContractAsync({
           address: MARKET_ADDRESS,
