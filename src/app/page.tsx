@@ -351,14 +351,33 @@ export default function Home() {
       )}
 
       {celebrate && (
-        <div className="pointer-events-none fixed inset-0 z-[60] overflow-hidden">
+        <div
+          className="pointer-events-none fixed inset-0 z-[60] overflow-hidden"
+          style={{ animation: 'fadeOut 2s ease-out 0.5s forwards' }}
+          onAnimationEnd={() => setCelebrate(false)}
+        >
           {Array.from({ length: 18 }).map((_, i) => (
             <span
               key={i}
-              className="absolute h-2 w-2 animate-ping rounded-full bg-[#0052FF]"
-              style={{ left: `${(i * 97) % 100}%`, top: `${(i * 43) % 40}%`, animationDelay: `${(i % 6) * 80}ms` }}
+              className="absolute h-3 w-3 rounded-full bg-[#0052FF]"
+              style={{
+                left: `${(i * 97) % 100}%`,
+                top: `${(i * 43) % 40}%`,
+                animation: `confettiFall 1.8s ease-in ${(i % 6) * 100}ms forwards`,
+                opacity: 0,
+              }}
             />
           ))}
+          <style>{`
+            @keyframes confettiFall {
+              0% { opacity: 1; transform: translateY(0) scale(1); }
+              100% { opacity: 0; transform: translateY(120px) scale(0.5); }
+            }
+            @keyframes fadeOut {
+              0% { opacity: 1; }
+              100% { opacity: 0; }
+            }
+          `}</style>
         </div>
       )}
 
