@@ -638,7 +638,15 @@ export default function Home() {
   )
 }
 
-type Position = { app: string; market: string; amount: string }
+type Position = {
+  app: string
+  market: string
+  amount: string
+  rank: number | null
+  iconUrl: string | null
+  weeklyUsers: string | null
+  betType?: string // V3: "top1" | "top5" | "top10"
+}
 
 function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, onExplore }: {
   address: `0x${string}` | undefined
@@ -729,14 +737,35 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
       ) : positions.length > 0 ? (
         <div className="space-y-2">
           {positions.map((p, i) => (
-            <div key={i} className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="flex items-center gap-2">
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">
-                  {p.market === 'App' ? 'A' : 'C'}
-                </span>
-                <span className="text-sm font-semibold">{p.app}</span>
+            <div key={i} className="border border-zinc-200 p-4 dark:border-zinc-800">
+              <div className="flex items-center gap-3">
+                {p.iconUrl ? (
+                  <Image src={p.iconUrl} alt={p.app} width={36} height={36} className="h-9 w-9 rounded-lg" unoptimized />
+                ) : (
+                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-[#0052FF]/10 text-sm font-bold text-[#0052FF]">
+                    {p.app.charAt(0)}
+                  </span>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold truncate">{p.app}</span>
+                    <span className="ml-2 text-sm font-bold">${Number(p.amount).toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                      {p.market === 'App' ? 'App Market' : 'Chain Market'}
+                    </span>
+                    {p.rank && (
+                      <span className="text-[10px] text-zinc-500">Rank #{p.rank}</span>
+                    )}
+                    {p.betType && (
+                      <span className="rounded bg-[#0052FF]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#0052FF]">
+                        {p.betType === 'top1' ? '#1' : p.betType === 'top5' ? 'Top 5' : 'Top 10'}
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
-              <span className="font-bold">${Number(p.amount).toFixed(2)}</span>
             </div>
           ))}
           <p className="px-1 text-xs text-zinc-500">Positions lock when the epoch ends. Claim winnings after resolution.</p>
@@ -744,21 +773,25 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
       ) : (
         <div className="space-y-2">
           {appStakeUsdc > 0 && (
-            <div className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="flex items-center gap-2">
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">A</span>
-                <span className="text-sm font-semibold">App Market</span>
+            <div className="border border-zinc-200 p-4 dark:border-zinc-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">A</span>
+                  <span className="text-sm font-semibold">App Market</span>
+                </div>
+                <span className="font-bold">${appStakeUsdc.toFixed(2)}</span>
               </div>
-              <span className="font-bold">${appStakeUsdc.toFixed(2)}</span>
             </div>
           )}
           {chainStakeUsdc > 0 && (
-            <div className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="flex items-center gap-2">
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">C</span>
-                <span className="text-sm font-semibold">Chain Market</span>
+            <div className="border border-zinc-200 p-4 dark:border-zinc-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">C</span>
+                  <span className="text-sm font-semibold">Chain Market</span>
+                </div>
+                <span className="font-bold">${chainStakeUsdc.toFixed(2)}</span>
               </div>
-              <span className="font-bold">${chainStakeUsdc.toFixed(2)}</span>
             </div>
           )}
           <p className="px-1 text-xs text-zinc-500">Positions lock when the epoch ends. Claim winnings after resolution.</p>

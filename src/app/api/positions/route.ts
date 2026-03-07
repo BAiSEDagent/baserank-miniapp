@@ -89,16 +89,33 @@ async function getPositions(epochId: bigint, user: `0x${string}`, origin: string
     allResults.push(...chunkResults)
   }
 
+  // Build name→metadata lookup from leaderboard
+  const metaMap = new Map<string, { rank: number; iconUrl: string; weeklyUsers: string }>()
+  for (const e of [...(appData.entries ?? []), ...(chainData.entries ?? [])]) {
+    if (!metaMap.has(e.projectName)) {
+      metaMap.set(e.projectName, {
+        rank: e.rank ?? 0,
+        iconUrl: e.iconUrl ?? '',
+        weeklyUsers: e.weeklyTransactingUsers ?? '0',
+      })
+    }
+  }
+
   const positions = []
   for (let i = 0; i < allResults.length; i++) {
     const r = allResults[i]
     if (r.status === 'success') {
       const amt = r.result as bigint
       if (amt > BigInt(0)) {
+        const name = calls[i]._meta.name
+        const meta = metaMap.get(name)
         positions.push({
-          app: calls[i]._meta.name,
+          app: name,
           market: calls[i]._meta.market,
           amount: formatUnits(amt, 6),
+          rank: meta?.rank ?? null,
+          iconUrl: meta?.iconUrl ?? null,
+          weeklyUsers: meta?.weeklyUsers ?? null,
         })
       }
     }
