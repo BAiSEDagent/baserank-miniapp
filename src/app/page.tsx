@@ -205,6 +205,7 @@ export default function Home() {
     try {
       if (!MARKET_ADDRESS) throw new Error('Missing contract address')
       if (!isConnected || !address) throw new Error('Connect wallet first')
+      if (!selectedApp) throw new Error('Select an app from the leaderboard first')
 
       if (chainId !== TARGET_CHAIN) {
         switchChain({ chainId: TARGET_CHAIN })
@@ -673,6 +674,7 @@ export default function Home() {
         busy={isTxSending || isConfirming}
         app={selectedApp}
         connected={isConnected}
+        poolUsdc={totalPoolUsdc}
       />
     </main>
   )

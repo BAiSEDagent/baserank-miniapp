@@ -18,6 +18,7 @@ export function BetSheet({
   busy,
   app,
   connected,
+  poolUsdc,
 }: {
   open: boolean
   onClose: () => void
@@ -25,6 +26,7 @@ export function BetSheet({
   busy?: boolean
   app: string
   connected: boolean
+  poolUsdc?: number
 }) {
   const [tier, setTier] = useState<number>(1)
   const [amount, setAmount] = useState('0')
@@ -44,7 +46,7 @@ export function BetSheet({
     setSwipeBusy(false)
   }, [open, x])
 
-  const pool = useMemo(() => 1800 + (app.length * 73) % 4200, [app])
+  const pool = useMemo(() => poolUsdc ?? 0, [poolUsdc])
   const est = useMemo(() => {
     const n = Number(amount || '0')
     return (1 + (pool / Math.max(n, 1)) * 0.01).toFixed(2)
