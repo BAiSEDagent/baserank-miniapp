@@ -47,7 +47,7 @@ export async function GET(req: Request) {
     }
 
     // V2: All leaderboard entries are tradeable — any candidateId works
-    const entries = (raw.entries ?? []).slice(0, 30).map((e) => ({
+    const entries = (raw.entries ?? []).slice(0, 50).map((e) => ({
       rank: e.rank,
       projectId: e.projectId,
       projectName: e.projectName,
