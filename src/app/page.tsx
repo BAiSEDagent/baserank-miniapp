@@ -12,11 +12,10 @@ import {
   useEnsName,
   useEnsAvatar,
   useBalance,
-  useSignTypedData,
+
   useReadContract,
 } from 'wagmi'
-import { useWriteContracts } from 'wagmi/experimental'
-import { parseUnits, encodePacked, keccak256, parseSignature, getAddress } from 'viem'
+import { parseUnits, encodePacked, keccak256, getAddress } from 'viem'
 import { base, baseSepolia } from 'wagmi/chains'
 import { BetSheet } from '@/components/bet-sheet'
 import { CountdownTimer } from '@/components/countdown-timer'
@@ -62,8 +61,7 @@ export default function Home() {
   const { disconnect } = useDisconnect()
   const { switchChain } = useSwitchChain()
   const { writeContractAsync, data: hash, isPending: isTxSending } = useWriteContract()
-  const { writeContractsAsync } = useWriteContracts()
-  const { signTypedDataAsync } = useSignTypedData()
+
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash })
 
   const { data: ensNameRaw } = useEnsName({ address, chainId: 1, query: { enabled: !!address } })
@@ -179,8 +177,8 @@ export default function Home() {
 
   async function handleSubmit({ tier, amount }: { tier: number; amount: string }) {
     try {
-      if (!MARKET_ADDRESS) throw new Error('Missing NEXT_PUBLIC_MARKET_ADDRESS')
-      if (!isConnected) throw new Error('Connect wallet first')
+      if (!MARKET_ADDRESS) throw new Error('Missing contract address')
+      if (!isConnected || !address) throw new Error('Connect wallet first')
 
       if (chainId !== TARGET_CHAIN) {
         switchChain({ chainId: TARGET_CHAIN })
@@ -190,107 +188,45 @@ export default function Home() {
       setTxStep('signing')
       const appId = keccak256(encodePacked(['string'], [`${marketType}:${selectedApp}`]))
       const value = parseUnits(amount, 6)
+      const marketTypeInt = marketType === 'app' ? 0 : 1
+
+      const { createPublicClient, http } = await import('viem')
+      const { base: baseChain } = await import('viem/chains')
+      const publicClient = createPublicClient({ chain: baseChain, transport: http() })
 
       setTxStep('submitting')
 
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
-      const nonce = typeof permitNonce === 'bigint' ? permitNonce : BigInt(0)
+      // Step 1: Check USDC allowance — approve if needed, wait for confirmation
+      const allowance = await publicClient.readContract({
+        address: USDC_BASE,
+        abi: [{ type: 'function', name: 'allowance', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] }],
+        functionName: 'allowance',
+        args: [address, MARKET_ADDRESS],
+      }) as bigint
 
-      // Attempt permit path first for 1-click UX.
-      try {
-        let signature: `0x${string}`
-        try {
-          signature = await signTypedDataAsync({
-            domain: {
-              name: 'USD Coin',
-              version: '2',
-              chainId: base.id,
-              verifyingContract: USDC_BASE,
-            },
-            types: {
-              Permit: [
-                { name: 'owner', type: 'address' },
-                { name: 'spender', type: 'address' },
-                { name: 'value', type: 'uint256' },
-                { name: 'nonce', type: 'uint256' },
-                { name: 'deadline', type: 'uint256' },
-              ],
-            },
-            primaryType: 'Permit',
-            message: {
-              owner: address as `0x${string}`,
-              spender: MARKET_ADDRESS,
-              value,
-              nonce,
-              deadline,
-            },
-          })
-        } catch (err) {
-          console.error('[permit_sign_failed]', err)
-          throw new Error('permit_sign_failed')
-        }
-
-        const { v, r, s } = parseSignature(signature)
-
-        try {
-          await writeContractsAsync({
-            contracts: [
-              {
-                address: MARKET_ADDRESS,
-                abi: BaseRankMarketABI,
-                functionName: 'predictWithPermit',
-                args: [WEEK_ID, marketType === 'app' ? 0 : 1, appId, value, { value, deadline, v, r, s }],
-              },
-            ],
-            capabilities: {
-              paymasterService: {
-                url: '/api/paymaster',
-              },
-            },
-          })
-        } catch (err) {
-          console.error('[sponsored_send_failed]', err)
-          throw new Error('sponsored_send_failed')
-        }
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : 'unknown_sponsored_path_error'
-        const fallbackMsg =
-          reason === 'permit_sign_failed'
-            ? 'Using standard transaction path for this wallet environment'
-            : reason === 'sponsored_send_failed'
-              ? 'Gas sponsorship unavailable right now — using standard transaction path'
-              : 'Using standard transaction path'
-        setToast(fallbackMsg)
-        setTimeout(() => setToast(''), 2600)
-        // Check USDC allowance before calling predict — predict requires prior approval
-        const { createPublicClient, http } = await import('viem')
-        const { base: baseChain } = await import('viem/chains')
-        const publicClient = createPublicClient({ chain: baseChain, transport: http() })
-        const allowance = await publicClient.readContract({
+      if (allowance < value) {
+        setToast('Step 1/2: Approve USDC…')
+        const approveTxHash = await writeContractAsync({
           address: USDC_BASE,
-          abi: [{ type: 'function', name: 'allowance', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] }],
-          functionName: 'allowance',
-          args: [address as `0x${string}`, MARKET_ADDRESS],
-        })
-        if ((allowance as bigint) < value) {
-          setToast('Approving USDC spend…')
-          await writeContractAsync({
-            address: USDC_BASE,
-            abi: [{ type: 'function', name: 'approve', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] }],
-            functionName: 'approve',
-            args: [MARKET_ADDRESS, value],
-            chainId: TARGET_CHAIN,
-          })
-          setToast('Submitting prediction…')
-        }
-        await writeContractAsync({
-          address: MARKET_ADDRESS,
-          abi: BaseRankMarketABI,
-          functionName: 'predict',
-          args: [WEEK_ID, marketType === 'app' ? 0 : 1, appId, value],
+          abi: [{ type: 'function', name: 'approve', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] }],
+          functionName: 'approve',
+          args: [MARKET_ADDRESS, value],
           chainId: TARGET_CHAIN,
         })
+        // Wait for approval to be mined before proceeding
+        await publicClient.waitForTransactionReceipt({ hash: approveTxHash })
+        setToast('Step 2/2: Submitting prediction…')
       }
+
+      // Step 2: Submit prediction
+      await writeContractAsync({
+        address: MARKET_ADDRESS,
+        abi: BaseRankMarketABI,
+        functionName: 'predict',
+        args: [WEEK_ID, marketTypeInt, appId, value],
+        chainId: TARGET_CHAIN,
+      })
+
       setOpen(false)
     } catch (err) {
       console.error('[tx_failed]', err)
