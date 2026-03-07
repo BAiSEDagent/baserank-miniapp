@@ -488,8 +488,9 @@ export default function Home() {
             </div>
             {appsLoading && <div className="px-4 text-sm text-zinc-500">Loading leaderboard candidates…</div>}
             {!appsLoading &&
-              apps.map((entry) => {
+              apps.map((entry, idx) => {
                 const wtus = Number(entry.weeklyTransactingUsers || '0')
+                const displayRank = idx + 1
 
                 return (
                   <button
@@ -498,30 +499,22 @@ export default function Home() {
                       setSelectedApp(entry.projectName)
                       setOpen(true)
                     }}
-                    className="w-full border-b border-zinc-200 px-6 py-4 text-left dark:border-zinc-800"
+                    className="w-full border-b border-zinc-200 px-4 py-3 text-left dark:border-zinc-800"
                   >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <div className="grid h-12 w-12 place-items-center rounded-full bg-zinc-200 text-sm font-bold dark:bg-zinc-800">
-                          #{entry.rank}
-                        </div>
-                        {entry.iconUrl ? (
-                          <Image src={entry.iconUrl} alt={entry.projectName} width={48} height={48} className="h-12 w-12 rounded-full" unoptimized />
-                        ) : (
-                          <div className="h-12 w-12 rounded-full bg-zinc-200 dark:bg-zinc-800" />
-                        )}
-                        <div>
-                          <h3 className="text-lg font-semibold leading-tight">{entry.projectName}</h3>
-                          <p className="text-xs text-zinc-500">{entry.appUrl || 'base app'}</p>
-                        </div>
+                    <div className="flex items-center gap-3">
+                      <div className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full bg-zinc-200 text-xs font-bold dark:bg-zinc-800">
+                        {displayRank}
                       </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <div className="text-xs font-mono text-zinc-500">WTUs</div>
-                          <div className="text-sm font-bold">{wtus.toLocaleString()}</div>
-                        </div>
-                        <span className="rounded-full bg-zinc-100 px-3 py-2 text-xs font-bold dark:bg-zinc-800">Trade</span>
+                      {entry.iconUrl ? (
+                        <Image src={entry.iconUrl} alt={entry.projectName} width={36} height={36} className="h-9 w-9 flex-shrink-0 rounded-full" unoptimized />
+                      ) : (
+                        <div className="h-9 w-9 flex-shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-800" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <h3 className="truncate text-sm font-semibold leading-tight">{entry.projectName}</h3>
+                        <p className="text-xs text-zinc-500">{wtus > 0 ? `${wtus.toLocaleString()} WTUs` : 'No data yet'}</p>
                       </div>
+                      <span className="flex-shrink-0 rounded-full bg-[#0052FF] px-3 py-1.5 text-xs font-bold text-white">Trade</span>
                     </div>
                   </button>
                 )
