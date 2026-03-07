@@ -87,13 +87,19 @@ export function BetSheet({
           <motion.div className="fixed inset-0 bg-black/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
 
           <motion.div
+            drag="y"
+            dragConstraints={{ top: 0, bottom: 0 }}
+            dragElastic={{ top: 0, bottom: 0.6 }}
+            onDragEnd={(_e, info) => {
+              if (info.offset.y > 120 || info.velocity.y > 400) onClose()
+            }}
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', stiffness: 300, damping: 25 }}
             className="fixed bottom-0 left-0 right-0 z-50 mx-auto flex h-[88vh] w-full max-w-md flex-col rounded-t-3xl bg-white px-4 pt-4 text-zinc-950 dark:bg-zinc-950 dark:text-white"
           >
-            <div className="mx-auto h-1.5 w-12 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+            <div className="mx-auto h-1.5 w-12 cursor-grab rounded-full bg-zinc-300 active:cursor-grabbing dark:bg-zinc-700" />
 
             <div className="mt-3 flex items-center justify-center gap-2">
               <span className="h-6 w-6 rounded-full bg-[#0052FF]" />
