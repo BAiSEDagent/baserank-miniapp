@@ -413,7 +413,7 @@ export default function Home() {
       )}
 
       <div className="mx-auto max-w-md pb-28 pt-0">
-        <header className="sticky top-0 z-40 mb-2 flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+        <header className="sticky top-0 z-40 mb-2 flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-3 dark:border-zinc-800 dark:bg-zinc-950">
           <div>
             <p className="text-xs uppercase tracking-widest text-zinc-500">Base Mini App</p>
             <h1 className="flex items-center gap-2 text-xl font-semibold text-zinc-950 dark:text-white">
@@ -450,7 +450,7 @@ export default function Home() {
           </div>
         )}
 
-        <section className="mb-4 border-b border-zinc-200 px-4 pb-4 dark:border-zinc-800">
+        <section className="mb-4 border-b border-zinc-200 px-6 pb-4 dark:border-zinc-800">
           <p className="text-xs uppercase tracking-wide text-zinc-500">Weekly prediction volume</p>
           <p className="mt-1 text-5xl font-extrabold tracking-tighter">
             {totalPoolUsdc >= 1000 ? `$${(totalPoolUsdc / 1000).toFixed(1)}K` : `$${totalPoolUsdc.toFixed(0)}`}
@@ -476,13 +476,13 @@ export default function Home() {
 
         {showMarkets ? (
           <section className="space-y-3">
-            <div className="flex items-center justify-between px-4 pb-1 text-xs">
+            <div className="flex items-center justify-between px-6 pb-1 text-xs">
               <span className="text-zinc-500">{formatLastUpdate(lastUpdateMs)}</span>
               <span className="rounded-full bg-zinc-100 px-3 py-1 font-bold tracking-tight text-zinc-900 dark:bg-zinc-900 dark:text-white">
                 <CountdownTimer nextRefreshMs={lockTime ? Number(lockTime) * 1000 : nextRefreshMs} label={lockTime ? 'Locks in' : undefined} />
               </span>
             </div>
-            <div className="px-4 pb-2">
+            <div className="px-6 pb-2">
               <div className="inline-flex rounded-full border border-zinc-200 p-1 dark:border-zinc-800">
                 <button
                   onClick={() => setMarketType('chain')}
@@ -498,7 +498,7 @@ export default function Home() {
                 </button>
               </div>
             </div>
-            {appsLoading && <div className="px-4 text-sm text-zinc-500">Loading leaderboard candidates…</div>}
+            {appsLoading && <div className="px-6 text-sm text-zinc-500">Loading leaderboard candidates…</div>}
             {!appsLoading &&
               apps.map((entry) => {
                 const wtus = Number(entry.weeklyTransactingUsers || '0')
@@ -512,7 +512,7 @@ export default function Home() {
                       setSelectedApp(entry.projectName)
                       setOpen(true)
                     }}
-                    className={`w-full border-b border-zinc-200 px-4 py-3 text-left dark:border-zinc-800 ${!canTrade ? 'opacity-60' : ''}`}
+                    className={`w-full border-b border-zinc-200 px-6 py-3 text-left dark:border-zinc-800 ${!canTrade ? 'opacity-60' : ''}`}
                   >
                     <div className="flex items-center gap-3">
                       <div className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full bg-zinc-200 text-xs font-bold dark:bg-zinc-800">
@@ -538,7 +538,7 @@ export default function Home() {
               })}
           </section>
         ) : (
-          <section className="px-4 py-6">
+          <section className="px-6 py-6">
             {activeTab === 'positions' && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
