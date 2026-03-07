@@ -453,7 +453,7 @@ export default function Home() {
         <section className="mb-4 border-b border-zinc-200 px-6 pb-4 dark:border-zinc-800">
           <p className="text-xs uppercase tracking-wide text-zinc-500">Weekly prediction volume</p>
           <p className="mt-1 text-5xl font-extrabold tracking-tighter">
-            {totalPoolUsdc >= 1000 ? `$${(totalPoolUsdc / 1000).toFixed(1)}K` : `$${totalPoolUsdc.toFixed(0)}`}
+            {totalPoolUsdc >= 1000 ? `$${(totalPoolUsdc / 1000).toFixed(1)}K` : totalPoolUsdc >= 1 ? `$${totalPoolUsdc.toFixed(2)}` : `$${totalPoolUsdc.toFixed(2)}`}
           </p>
           <div className="mt-2 flex items-center gap-3 text-xs">
             <span className="rounded-full bg-blue-50 px-2 py-1 font-semibold text-[#0052FF] dark:bg-blue-950/40 dark:text-blue-300">
@@ -540,48 +540,14 @@ export default function Home() {
         ) : (
           <section className="px-6 py-6">
             {activeTab === 'positions' && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-zinc-500">Unclaimed winnings</p>
-                    <p className="text-2xl font-extrabold tracking-tight">$0.00 USDC</p>
-                  </div>
-                  <button
-                    className="h-11 min-h-11 rounded-full bg-zinc-200 px-5 text-sm font-bold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-                    disabled
-                  >
-                    Claim
-                  </button>
-                </div>
-
-                <div className="grid min-h-[220px] place-items-center border border-zinc-200 p-6 text-center dark:border-zinc-800">
-                  {!isConnected ? (
-                    <div>
-                      <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-100 text-xl dark:bg-zinc-900">◌</div>
-                      <p className="text-xl font-bold tracking-tight">Connect to view positions</p>
-                      <p className="mt-1 text-sm text-zinc-500">Connect your Smart Wallet to track your predictions.</p>
-                      <button
-                        className="mt-4 h-11 min-h-11 rounded-full bg-[#0052FF] px-5 text-sm font-bold text-white"
-                        onClick={() => smartWallet && connect({ connector: smartWallet })}
-                      >
-                        Connect Wallet
-                      </button>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-100 text-xl dark:bg-zinc-900">◎</div>
-                      <p className="text-xl font-bold tracking-tight">No active predictions</p>
-                      <p className="mt-1 text-sm text-zinc-500">Place your first prediction to track it here.</p>
-                      <button
-                        className="mt-4 h-11 min-h-11 rounded-full bg-[#0052FF] px-5 text-sm font-bold text-white"
-                        onClick={() => setActiveTab('markets')}
-                      >
-                        Explore Markets
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <PositionsTab
+                address={address}
+                isConnected={isConnected}
+                marketAddress={MARKET_ADDRESS}
+                weekId={WEEK_ID}
+                onConnect={() => smartWallet && connect({ connector: smartWallet })}
+                onExplore={() => setActiveTab('markets')}
+              />
             )}
 
             {activeTab === 'results' && (
@@ -672,6 +638,94 @@ export default function Home() {
   )
 }
 
+function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, onExplore }: {
+  address: `0x${string}` | undefined
+  isConnected: boolean
+  marketAddress: `0x${string}` | undefined
+  weekId: bigint
+  onConnect: () => void
+  onExplore: () => void
+}) {
+  const { data: appStake } = useReadContract({
+    address: marketAddress,
+    abi: BaseRankMarketV2ABI,
+    functionName: 'userTotalStake',
+    args: [weekId, 0, address!],
+    chainId: base.id,
+    query: { enabled: !!marketAddress && !!address, refetchInterval: 15000 },
+  })
+  const { data: chainStake } = useReadContract({
+    address: marketAddress,
+    abi: BaseRankMarketV2ABI,
+    functionName: 'userTotalStake',
+    args: [weekId, 1, address!],
+    chainId: base.id,
+    query: { enabled: !!marketAddress && !!address, refetchInterval: 15000 },
+  })
+
+  const totalStakeUsdc = Number((appStake ?? BigInt(0)) + (chainStake ?? BigInt(0))) / 1e6
+  const appStakeUsdc = Number(appStake ?? BigInt(0)) / 1e6
+  const chainStakeUsdc = Number(chainStake ?? BigInt(0)) / 1e6
+  const hasPositions = totalStakeUsdc > 0
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-zinc-500">Your total stake</p>
+          <p className="text-2xl font-extrabold tracking-tight">${totalStakeUsdc.toFixed(2)} USDC</p>
+        </div>
+      </div>
+
+      {!isConnected ? (
+        <div className="grid min-h-[220px] place-items-center border border-zinc-200 p-6 text-center dark:border-zinc-800">
+          <div>
+            <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-100 text-xl dark:bg-zinc-900">◌</div>
+            <p className="text-xl font-bold tracking-tight">Connect to view positions</p>
+            <p className="mt-1 text-sm text-zinc-500">Connect your Smart Wallet to track your predictions.</p>
+            <button className="mt-4 h-11 min-h-11 rounded-full bg-[#0052FF] px-5 text-sm font-bold text-white" onClick={onConnect}>
+              Connect Wallet
+            </button>
+          </div>
+        </div>
+      ) : !hasPositions ? (
+        <div className="grid min-h-[220px] place-items-center border border-zinc-200 p-6 text-center dark:border-zinc-800">
+          <div>
+            <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-100 text-xl dark:bg-zinc-900">◎</div>
+            <p className="text-xl font-bold tracking-tight">No active predictions</p>
+            <p className="mt-1 text-sm text-zinc-500">Place your first prediction to track it here.</p>
+            <button className="mt-4 h-11 min-h-11 rounded-full bg-[#0052FF] px-5 text-sm font-bold text-white" onClick={onExplore}>
+              Explore Markets
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {appStakeUsdc > 0 && (
+            <div className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
+              <div className="flex items-center gap-2">
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">A</span>
+                <span className="text-sm font-semibold">Base App Market</span>
+              </div>
+              <span className="font-bold">${appStakeUsdc.toFixed(2)}</span>
+            </div>
+          )}
+          {chainStakeUsdc > 0 && (
+            <div className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
+              <div className="flex items-center gap-2">
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">C</span>
+                <span className="text-sm font-semibold">Base Chain Market</span>
+              </div>
+              <span className="font-bold">${chainStakeUsdc.toFixed(2)}</span>
+            </div>
+          )}
+          <p className="px-1 text-xs text-zinc-500">Positions lock when the epoch ends. Claim winnings after resolution.</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 type ActivityItem = { user: string; amount: string; marketType: string; txHash: string }
 
 function ResultsTab({ marketAddress }: { marketAddress: `0x${string}` | undefined }) {
@@ -679,14 +733,19 @@ function ResultsTab({ marketAddress }: { marketAddress: `0x${string}` | undefine
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
-    fetch('/api/activity')
-      .then((r) => r.json())
-      .then((d) => { setActivity(d.activity ?? []); setLoaded(true) })
-      .catch(() => setLoaded(true))
-    const iv = setInterval(() => {
-      fetch('/api/activity').then((r) => r.json()).then((d) => setActivity(d.activity ?? [])).catch(() => {})
-    }, 15_000)
-    return () => clearInterval(iv)
+    let cancelled = false
+    async function load() {
+      try {
+        const r = await fetch('/api/activity', { cache: 'no-store' })
+        const d = await r.json()
+        if (!cancelled) { setActivity(d.activity ?? []); setLoaded(true) }
+      } catch {
+        if (!cancelled) setLoaded(true)
+      }
+    }
+    load()
+    const iv = setInterval(load, 15_000)
+    return () => { cancelled = true; clearInterval(iv) }
   }, [])
 
   return (
