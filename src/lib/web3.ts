@@ -4,7 +4,7 @@ import { coinbaseWallet } from 'wagmi/connectors'
 import { farcasterFrame } from '@farcaster/miniapp-wagmi-connector'
 
 export const wagmiConfig = createConfig({
-  chains: [baseSepolia, base],
+  chains: [base, baseSepolia],
   connectors: [
     farcasterFrame(),
     coinbaseWallet({
