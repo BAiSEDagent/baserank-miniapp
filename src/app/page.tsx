@@ -91,6 +91,32 @@ export default function Home() {
     query: { enabled: !!address && chainId === base.id },
   })
 
+  // Live market stats from contract
+  const { data: appMarket } = useReadContract({
+    address: MARKET_ADDRESS,
+    abi: BaseRankMarketABI,
+    functionName: 'marketDetails',
+    args: [WEEK_ID, 0],
+    chainId: base.id,
+    query: { enabled: !!MARKET_ADDRESS, refetchInterval: 30000 },
+  })
+  const { data: chainMarket } = useReadContract({
+    address: MARKET_ADDRESS,
+    abi: BaseRankMarketABI,
+    functionName: 'marketDetails',
+    args: [WEEK_ID, 1],
+    chainId: base.id,
+    query: { enabled: !!MARKET_ADDRESS, refetchInterval: 30000 },
+  })
+  const totalPoolUsdc = useMemo(() => {
+    const a = (appMarket as { totalPool?: bigint } | undefined)?.totalPool ?? BigInt(0)
+    const b = (chainMarket as { totalPool?: bigint } | undefined)?.totalPool ?? BigInt(0)
+    return Number(a + b) / 1e6
+  }, [appMarket, chainMarket])
+  const lockTime = useMemo(() => {
+    return (appMarket as { lockTime?: bigint } | undefined)?.lockTime ?? null
+  }, [appMarket])
+
   const [open, setOpen] = useState(false)
   const [apps, setApps] = useState<LeaderboardEntry[]>([])
   const [appsLoading, setAppsLoading] = useState(true)
@@ -427,10 +453,12 @@ export default function Home() {
 
         <section className="mb-4 border-b border-zinc-200 px-4 pb-4 dark:border-zinc-800">
           <p className="text-xs uppercase tracking-wide text-zinc-500">Weekly prediction volume</p>
-          <p className="mt-1 text-5xl font-extrabold tracking-tighter">$24.8K</p>
+          <p className="mt-1 text-5xl font-extrabold tracking-tighter">
+            {totalPoolUsdc >= 1000 ? `$${(totalPoolUsdc / 1000).toFixed(1)}K` : `$${totalPoolUsdc.toFixed(0)}`}
+          </p>
           <div className="mt-2 flex items-center gap-3 text-xs">
             <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">+18.2% this week</span>
-            <span className="text-zinc-500">2,431 predictions</span>
+            <span className="text-zinc-500">{totalPoolUsdc > 0 ? 'Live on Base' : 'Markets open'}</span>
           </div>
         </section>
 
@@ -450,7 +478,7 @@ export default function Home() {
             <div className="flex items-center justify-between px-4 pb-1 text-xs">
               <span className="text-zinc-500">{formatLastUpdate(lastUpdateMs)}</span>
               <span className="rounded-full bg-zinc-100 px-3 py-1 font-bold tracking-tight text-zinc-900 dark:bg-zinc-900 dark:text-white">
-                <CountdownTimer nextRefreshMs={nextRefreshMs} />
+                <CountdownTimer nextRefreshMs={lockTime ? Number(lockTime) * 1000 : nextRefreshMs} label={lockTime ? 'Locks in' : undefined} />
               </span>
             </div>
             <div className="px-4 pb-2">
