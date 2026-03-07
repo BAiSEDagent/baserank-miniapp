@@ -5,7 +5,10 @@ import { base } from 'viem/chains'
 export const dynamic = 'force-dynamic'
 
 const V2 = getAddress('0x768ae7ACBaf472cC066cc229928311daA531cEBe')
-const client = createPublicClient({ chain: base, transport: http('https://mainnet.base.org') })
+const client = createPublicClient({
+  chain: base,
+  transport: http(process.env.PAYMASTER_URL?.includes('base-sepolia') ? 'https://mainnet.base.org' : (process.env.BASE_RPC_URL || 'https://mainnet.base.org')),
+})
 
 const predictedEvent = parseAbiItem(
   'event Predicted(uint64 indexed epochId, uint8 indexed marketType, address indexed user, bytes32 candidateId, uint256 amount)',
@@ -22,13 +25,13 @@ export async function GET(req: NextRequest) {
     const block = await client.getBlockNumber()
     const fromBlock = block - BigInt(100000) // ~5 days on Base
 
-    const logs = await client.getLogs({
+    const logs = (await client.getLogs({
       address: V2,
       event: predictedEvent,
-      args: { epochId, user: userAddr },
+      args: { epochId },
       fromBlock: fromBlock > BigInt(0) ? fromBlock : BigInt(0),
       toBlock: 'latest',
-    })
+    })).filter(log => log.args.user?.toLowerCase() === userAddr.toLowerCase())
 
     // Group by candidateId + marketType
     const map = new Map<string, { candidateId: string; market: string; total: bigint }>()

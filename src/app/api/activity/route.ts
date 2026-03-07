@@ -16,8 +16,8 @@ const predictedEvent = parseAbiItem(
 export async function GET() {
   try {
     const block = await client.getBlockNumber()
-    // ~15s blocks on Base, look back ~2 hours (~480 blocks)
-    const fromBlock = block - BigInt(480)
+    // ~2s blocks on Base, look back ~24 hours (~43200 blocks)
+    const fromBlock = block - BigInt(43200)
 
     const logs = await client.getLogs({
       address: V2,
