@@ -145,20 +145,22 @@ export function BetSheet({
                   Confirming with Smart Wallet...
                 </div>
               ) : (
-                <div ref={trackRef} className="relative h-12 w-full rounded-full bg-[#0052FF]">
-                  <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm font-medium text-white/90">
+                <div ref={trackRef} className={`relative h-12 w-full rounded-full ${canSubmit ? 'bg-[#0052FF]' : 'bg-zinc-600'}`}>
+                  <div className={`pointer-events-none absolute inset-0 grid place-items-center text-sm font-medium ${canSubmit ? 'text-white/90' : 'text-zinc-400'}`}>
                     {!connected ? 'Connect to Predict' : !canSubmit ? 'Enter amount (min $0.01)' : 'Swipe to Predict →'}
                   </div>
-                  <motion.button
-                    drag={canSubmit ? 'x' : false}
-                    dragConstraints={{ left: 0, right: maxSwipe }}
-                    dragElastic={0.05}
-                    style={{ x }}
-                    onDragEnd={onDragEnd}
-                    className="absolute left-1 top-1 grid h-11 w-11 place-items-center rounded-full bg-white text-[#0052FF]"
-                  >
-                    »
-                  </motion.button>
+                  {canSubmit && (
+                    <motion.button
+                      drag="x"
+                      dragConstraints={{ left: 0, right: maxSwipe }}
+                      dragElastic={0.05}
+                      style={{ x }}
+                      onDragEnd={onDragEnd}
+                      className="absolute left-1 top-1 grid h-11 w-11 place-items-center rounded-full bg-white text-[#0052FF]"
+                    >
+                      »
+                    </motion.button>
+                  )}
                 </div>
               )}
             </div>
