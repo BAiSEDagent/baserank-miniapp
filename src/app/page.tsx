@@ -647,7 +647,7 @@ export default function Home() {
               <div className="relative flex flex-col items-center justify-center gap-1">
                 <span className={`text-sm ${activeTab === item.key ? 'opacity-100' : 'opacity-70'}`}>{item.icon}</span>
                 <span>{item.label}</span>
-                {item.key === 'positions' && <span className="absolute -right-1 top-0 h-2 w-2 rounded-full bg-red-500" />}
+{/* notification dot removed — was always-on with no positions check */}
               </div>
             </button>
           ))}
