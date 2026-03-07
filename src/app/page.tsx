@@ -24,7 +24,7 @@ import { requestBaseNotificationPermission } from '@/lib/notifications'
 import { motion } from 'framer-motion'
 import { BaseRankMarketABI } from '@/lib/contracts/BaseRankMarketABI'
 
-const _raw = (process.env.NEXT_PUBLIC_MARKET_ADDRESS ?? '').replace(/^["']|["']$/g, '').trim()
+const _raw = (process.env.NEXT_PUBLIC_MARKET_ADDRESS ?? '').replace(/^["'\s]+|["'\s]+$/g, '')
 const MARKET_ADDRESS: `0x${string}` | undefined = _raw
   ? (() => { try { return getAddress(_raw) } catch { return undefined } })()
   : undefined
