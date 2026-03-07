@@ -1,7 +1,7 @@
 'use client'
 
 import { AnimatePresence, animate, motion, useMotionValue } from 'framer-motion'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const tiers = [
   { id: 1, label: 'Top 10' },
@@ -38,6 +38,8 @@ export function BetSheet({
 
   useEffect(() => {
     if (!open) return
+    setAmount('0')
+    setTier(1)
     const track = trackRef.current
     if (!track) return
     const w = track.clientWidth
@@ -46,11 +48,7 @@ export function BetSheet({
     setSwipeBusy(false)
   }, [open, x])
 
-  const pool = useMemo(() => poolUsdc ?? 0, [poolUsdc])
-  const est = useMemo(() => {
-    const n = Number(amount || '0')
-    return (1 + (pool / Math.max(n, 1)) * 0.01).toFixed(2)
-  }, [pool, amount])
+  const pool = poolUsdc ?? 0
 
   function pushKey(k: string) {
     if (k === '⌫') {
@@ -64,8 +62,11 @@ export function BetSheet({
     setAmount((prev) => (prev === '0' ? k : `${prev}${k}`))
   }
 
+  const numAmount = Number(amount || '0')
+  const canSubmit = connected && numAmount >= 0.01
+
   async function onDragEnd() {
-    if (swipeBusy || busy) return
+    if (swipeBusy || busy || !canSubmit) return
     const passed = x.get() > maxSwipe * 0.8
     if (!passed) {
       animate(x, 0, { type: 'spring', stiffness: 300, damping: 25 })
@@ -107,7 +108,7 @@ export function BetSheet({
 
             <div className="mb-4 flex justify-center">
               <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
-                Pool: ${pool.toLocaleString()} • Est: {est}x
+                Pool: ${pool.toLocaleString()} USDC
               </span>
             </div>
 
@@ -146,10 +147,10 @@ export function BetSheet({
               ) : (
                 <div ref={trackRef} className="relative h-12 w-full rounded-full bg-[#0052FF]">
                   <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm font-medium text-white/90">
-                    {connected ? 'Swipe to Predict →' : 'Connect to Predict'}
+                    {!connected ? 'Connect to Predict' : !canSubmit ? 'Enter amount (min $0.01)' : 'Swipe to Predict →'}
                   </div>
                   <motion.button
-                    drag={connected ? 'x' : false}
+                    drag={canSubmit ? 'x' : false}
                     dragConstraints={{ left: 0, right: maxSwipe }}
                     dragElastic={0.05}
                     style={{ x }}

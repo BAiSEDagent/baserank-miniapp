@@ -3,6 +3,15 @@ import { NextResponse } from 'next/server'
 export const revalidate = 60
 export const dynamic = 'force-dynamic'
 
+// Candidates registered on-chain for epoch 20260306
+// Only these names are valid for predictions
+const REGISTERED_CANDIDATES = new Set([
+  'Planet IX', 'Clash of Coins', 'Rips', 'Arbase GM', 'Avantis',
+  'Arbase Clicker', 'Aerodrome', 'Legend of Base', '$QR', 'Pixotchi Mini',
+  'BETRMINT', 'Base Me', 'Hydrex', 'Morpho', 'Rise of Farms',
+  'Wasabi', 'BaseHub', 'Moonwell', 'DropCast', 'Virtuals',
+])
+
 function nextWeeklyResetIso(now = new Date()) {
   // Base leaderboard UI countdown anchor (Wednesday 20:00 UTC)
   const d = new Date(now)
@@ -44,7 +53,8 @@ export async function GET(req: Request) {
       }>
     }
 
-    const entries = (raw.entries ?? []).slice(0, 25).map((e) => ({
+    // Only show apps that are registered candidates on-chain
+    const allEntries = (raw.entries ?? []).map((e) => ({
       rank: e.rank,
       projectId: e.projectId,
       projectName: e.projectName,
@@ -53,6 +63,25 @@ export async function GET(req: Request) {
       totalTransactions: e.totalTransactions ?? '0',
       iconUrl: e.iconUrl ?? '',
     }))
+    
+    // Filter to registered candidates, preserve their current leaderboard rank
+    const onChain = allEntries.filter((e) => REGISTERED_CANDIDATES.has(e.projectName))
+    
+    // Add any registered candidates missing from leaderboard (they still need to be tradeable)
+    const seen = new Set(onChain.map((e) => e.projectName))
+    const missing = [...REGISTERED_CANDIDATES].filter((n) => !seen.has(n))
+    const entries = [
+      ...onChain,
+      ...missing.map((name, i) => ({
+        rank: onChain.length + i + 1,
+        projectId: name.toLowerCase().replace(/\s+/g, '-'),
+        projectName: name,
+        appUrl: '',
+        weeklyTransactingUsers: '0',
+        totalTransactions: '0',
+        iconUrl: '',
+      })),
+    ]
 
     return NextResponse.json({
       source: `base.dev:v1/leaderboard:${leaderboardType}`,
