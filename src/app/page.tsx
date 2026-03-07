@@ -638,9 +638,9 @@ export default function Home() {
   )
 }
 
-type Position = { app: string; market: string; amount: number }
+type Position = { app: string; market: string; amount: string }
 
-function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, onExplore }: {
+function PositionsTab({ address, isConnected, weekId, onConnect, onExplore }: {
   address: `0x${string}` | undefined
   isConnected: boolean
   marketAddress: `0x${string}` | undefined
@@ -649,72 +649,24 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
   onExplore: () => void
 }) {
   const [positions, setPositions] = useState<Position[]>([])
+  const [totalStake, setTotalStake] = useState(0)
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
-    if (!address || !marketAddress) return
+    if (!address) { setLoaded(true); return }
     let cancelled = false
     async function load() {
       try {
-        const { createPublicClient, http, parseAbiItem, formatUnits } = await import('viem')
-        const { base: baseChain } = await import('viem/chains')
-        const pc = createPublicClient({ chain: baseChain, transport: http() })
-        const block = await pc.getBlockNumber()
-        const fromBlock = block - BigInt(50000) // ~2.5 days on Base
-
-        const logs = await pc.getLogs({
-          address: marketAddress,
-          event: parseAbiItem('event Predicted(uint64 indexed epochId, uint8 indexed marketType, address indexed user, bytes32 candidateId, uint256 amount)'),
-          args: { epochId: weekId, user: address },
-          fromBlock: fromBlock > BigInt(0) ? fromBlock : BigInt(0),
-          toBlock: 'latest',
-        })
-
-        // Group by candidateId + marketType, sum amounts
-        const map = new Map<string, { candidateId: string; market: string; total: bigint }>()
-        for (const log of logs) {
-          const cid = log.args.candidateId ?? ''
-          const mt = log.args.marketType === 0 ? 'App' : 'Chain'
-          const key = `${mt}:${cid}`
-          const existing = map.get(key)
-          const amt = log.args.amount ?? BigInt(0)
-          if (existing) {
-            existing.total += amt
-          } else {
-            map.set(key, { candidateId: cid, market: mt, total: amt })
-          }
-        }
-
-        // Reverse-map candidateId to app name using leaderboard
-        const appRes = await fetch('/api/leaderboard?market=app', { cache: 'no-store' })
-        const chainRes = await fetch('/api/leaderboard?market=chain', { cache: 'no-store' })
-        const appData = await appRes.json()
-        const chainData = await chainRes.json()
-        const nameMap = new Map<string, string>()
-        for (const e of [...(appData.entries ?? []), ...(chainData.entries ?? [])]) {
-          const appHash = keccak256(encodePacked(['string'], [`app:${e.projectName}`]))
-          const chainHash = keccak256(encodePacked(['string'], [`chain:${e.projectName}`]))
-          nameMap.set(`App:${appHash}`, e.projectName)
-          nameMap.set(`Chain:${chainHash}`, e.projectName)
-        }
-
-        const pos: Position[] = []
-        for (const [key, val] of map) {
-          const name = nameMap.get(key) ?? `Unknown (${val.candidateId.slice(0, 10)}...)`
-          pos.push({ app: name, market: val.market, amount: Number(formatUnits(val.total, 6)) })
-        }
-        pos.sort((a, b) => b.amount - a.amount)
-
-        if (!cancelled) { setPositions(pos); setLoaded(true) }
+        const r = await fetch(`/api/positions?address=${address}&epoch=${weekId.toString()}`, { cache: 'no-store' })
+        const d = await r.json()
+        if (!cancelled) { setPositions(d.positions ?? []); setTotalStake(d.total ?? 0); setLoaded(true) }
       } catch {
         if (!cancelled) setLoaded(true)
       }
     }
     load()
     return () => { cancelled = true }
-  }, [address, marketAddress, weekId])
-
-  const totalStake = positions.reduce((s, p) => s + p.amount, 0)
+  }, [address, weekId])
 
   return (
     <div className="space-y-3">
@@ -761,7 +713,7 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
                 </span>
                 <span className="text-sm font-semibold">{p.app}</span>
               </div>
-              <span className="font-bold">${p.amount.toFixed(2)}</span>
+              <span className="font-bold">${Number(p.amount).toFixed(2)}</span>
             </div>
           ))}
           <p className="px-1 text-xs text-zinc-500">Positions lock when the epoch ends. Claim winnings after resolution.</p>
