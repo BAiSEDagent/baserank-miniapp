@@ -1,6 +1,9 @@
 # BaseRank Kanban
 
 ## In Progress
+- [ ] Featured submission handoff
+  - [ ] Docs-linked Google form is unpublished; get current submission endpoint from Base Build/support
+  - [ ] Submit BaseRank for featured once endpoint is confirmed
 - [ ] Mainnet deployment pipeline completion
   - [ ] Add deploy tooling (Foundry or equivalent) in-repo
   - [ ] Deploy `BaseRankMarket` to Base mainnet

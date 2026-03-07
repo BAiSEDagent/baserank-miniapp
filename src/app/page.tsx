@@ -16,7 +16,7 @@ import {
   useReadContract,
 } from 'wagmi'
 import { parseUnits, encodePacked, keccak256, getAddress } from 'viem'
-import { base, baseSepolia } from 'wagmi/chains'
+import { base } from 'wagmi/chains'
 import { BetSheet } from '@/components/bet-sheet'
 import { CountdownTimer } from '@/components/countdown-timer'
 import Image from 'next/image'
@@ -31,7 +31,7 @@ const MARKET_ADDRESS: `0x${string}` | undefined = _raw
 const WEEK_ID = BigInt(20260306)
 const TARGET_CHAIN = base.id
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const
-const USDC_BASE_SEPOLIA = '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as const
+const MIN_STAKE_USDC = 0.01 // $0.01 minimum = 10000 in 6 decimals
 
 function formatLastUpdate(lastUpdateMs: number | null) {
   if (!lastUpdateMs) return 'Last snapshot: —'
@@ -67,28 +67,11 @@ export default function Home() {
   const { data: ensNameRaw } = useEnsName({ address, chainId: 1, query: { enabled: !!address } })
   const ensName = ensNameRaw ?? undefined
   const { data: ensAvatar } = useEnsAvatar({ name: ensName, chainId: 1, query: { enabled: !!ensName } })
-  const usdcAddress = chainId === base.id ? USDC_BASE : USDC_BASE_SEPOLIA
   const { data: usdcBalance, isLoading: usdcLoading } = useBalance({
     address,
-    token: usdcAddress,
-    chainId: chainId === base.id ? base.id : baseSepolia.id,
-    query: { enabled: !!address },
-  })
-  const { data: permitNonce } = useReadContract({
-    address: USDC_BASE,
-    abi: [
-      {
-        type: 'function',
-        name: 'nonces',
-        stateMutability: 'view',
-        inputs: [{ name: 'owner', type: 'address' }],
-        outputs: [{ name: '', type: 'uint256' }],
-      },
-    ] as const,
-    functionName: 'nonces',
-    args: address ? [address] : undefined,
+    token: USDC_BASE,
     chainId: base.id,
-    query: { enabled: !!address && chainId === base.id },
+    query: { enabled: !!address },
   })
 
   // Live market stats from contract
@@ -137,7 +120,7 @@ export default function Home() {
     [connectors],
   )
 
-  const wrongChain = isConnected && chainId !== base.id && chainId !== baseSepolia.id
+  const wrongChain = isConnected && chainId !== base.id
   const identityLabel = ensName || 'Connected User'
 
   useEffect(() => {
@@ -206,6 +189,9 @@ export default function Home() {
       if (!MARKET_ADDRESS) throw new Error('Missing contract address')
       if (!isConnected || !address) throw new Error('Connect wallet first')
       if (!selectedApp) throw new Error('Select an app from the leaderboard first')
+
+      const numAmount = Number(amount)
+      if (!numAmount || numAmount < MIN_STAKE_USDC) throw new Error(`Minimum stake is $${MIN_STAKE_USDC}`)
 
       if (chainId !== TARGET_CHAIN) {
         switchChain({ chainId: TARGET_CHAIN })
@@ -458,8 +444,10 @@ export default function Home() {
             {totalPoolUsdc >= 1000 ? `$${(totalPoolUsdc / 1000).toFixed(1)}K` : `$${totalPoolUsdc.toFixed(0)}`}
           </p>
           <div className="mt-2 flex items-center gap-3 text-xs">
-            <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">+18.2% this week</span>
-            <span className="text-zinc-500">{totalPoolUsdc > 0 ? 'Live on Base' : 'Markets open'}</span>
+            <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+              {totalPoolUsdc > 0 ? 'Live on Base' : 'Markets open'}
+            </span>
+            <span className="text-zinc-500">Epoch #{WEEK_ID.toString()}</span>
           </div>
         </section>
 

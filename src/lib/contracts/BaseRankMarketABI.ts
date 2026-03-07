@@ -374,11 +374,6 @@ export const BaseRankMarketABI = [
             "internalType": "uint8"
           },
           {
-            "name": "isRefund",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
             "name": "metadataHash",
             "type": "bytes32",
             "internalType": "bytes32"
