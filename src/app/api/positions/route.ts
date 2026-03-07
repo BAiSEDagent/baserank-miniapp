@@ -74,7 +74,6 @@ export async function GET(req: NextRequest) {
     const results = allResults
 
     const positions = []
-    const debug: string[] = []
     for (let i = 0; i < results.length; i++) {
       const r = results[i]
       if (r.status === 'success') {
@@ -86,25 +85,12 @@ export async function GET(req: NextRequest) {
             amount: formatUnits(amt, 6),
           })
         }
-      } else {
-        debug.push(`${calls[i]._meta.market}:${calls[i]._meta.name} = ERROR: ${r.error?.message?.slice(0, 50)}`)
       }
     }
     positions.sort((a, b) => Number(b.amount) - Number(a.amount))
     const total = positions.reduce((s, p) => s + Number(p.amount), 0)
 
-    return NextResponse.json({ 
-      positions, 
-      total,
-      _debug: {
-        appCount: appNames.length,
-        chainCount: chainNames.length,
-        callCount: calls.length,
-        resultCount: results.length,
-        errors: debug.slice(0, 5),
-        hasBaseApp: chainNames.includes('Base App'),
-      }
-    })
+    return NextResponse.json({ positions, total })
   } catch (e) {
     return NextResponse.json({ positions: [], total: 0, error: String(e) })
   }
