@@ -53,8 +53,7 @@ export async function GET(req: Request) {
       }>
     }
 
-    // Only show apps that are registered candidates on-chain
-    const allEntries = (raw.entries ?? []).map((e) => ({
+    const allEntries = (raw.entries ?? []).slice(0, 25).map((e) => ({
       rank: e.rank,
       projectId: e.projectId,
       projectName: e.projectName,
@@ -62,24 +61,23 @@ export async function GET(req: Request) {
       weeklyTransactingUsers: e.weeklyTransactingUsers ?? '0',
       totalTransactions: e.totalTransactions ?? '0',
       iconUrl: e.iconUrl ?? '',
+      tradeable: REGISTERED_CANDIDATES.has(e.projectName),
     }))
     
-    // Filter to registered candidates, preserve their current leaderboard rank
-    const onChain = allEntries.filter((e) => REGISTERED_CANDIDATES.has(e.projectName))
-    
-    // Add any registered candidates missing from leaderboard (they still need to be tradeable)
-    const seen = new Set(onChain.map((e) => e.projectName))
+    // Add any registered candidates missing from the top 25
+    const seen = new Set(allEntries.map((e) => e.projectName))
     const missing = [...REGISTERED_CANDIDATES].filter((n) => !seen.has(n))
     const entries = [
-      ...onChain,
+      ...allEntries,
       ...missing.map((name, i) => ({
-        rank: onChain.length + i + 1,
+        rank: allEntries.length + i + 1,
         projectId: name.toLowerCase().replace(/\s+/g, '-'),
         projectName: name,
         appUrl: '',
         weeklyTransactingUsers: '0',
         totalTransactions: '0',
         iconUrl: '',
+        tradeable: true,
       })),
     ]
 

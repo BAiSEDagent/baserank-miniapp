@@ -52,6 +52,7 @@ type LeaderboardEntry = {
   weeklyTransactingUsers: string
   totalTransactions: string
   iconUrl: string
+  tradeable?: boolean
 }
 
 export default function Home() {
@@ -488,22 +489,23 @@ export default function Home() {
             </div>
             {appsLoading && <div className="px-4 text-sm text-zinc-500">Loading leaderboard candidates…</div>}
             {!appsLoading &&
-              apps.map((entry, idx) => {
+              apps.map((entry) => {
                 const wtus = Number(entry.weeklyTransactingUsers || '0')
-                const displayRank = idx + 1
+                const canTrade = entry.tradeable !== false
 
                 return (
                   <button
                     key={entry.projectId}
                     onClick={() => {
+                      if (!canTrade) return
                       setSelectedApp(entry.projectName)
                       setOpen(true)
                     }}
-                    className="w-full border-b border-zinc-200 px-4 py-3 text-left dark:border-zinc-800"
+                    className={`w-full border-b border-zinc-200 px-4 py-3 text-left dark:border-zinc-800 ${!canTrade ? 'opacity-60' : ''}`}
                   >
                     <div className="flex items-center gap-3">
                       <div className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full bg-zinc-200 text-xs font-bold dark:bg-zinc-800">
-                        {displayRank}
+                        {entry.rank}
                       </div>
                       {entry.iconUrl ? (
                         <Image src={entry.iconUrl} alt={entry.projectName} width={36} height={36} className="h-9 w-9 flex-shrink-0 rounded-full" unoptimized />
@@ -514,7 +516,11 @@ export default function Home() {
                         <h3 className="truncate text-sm font-semibold leading-tight">{entry.projectName}</h3>
                         <p className="text-xs text-zinc-500">{wtus > 0 ? `${wtus.toLocaleString()} WTUs` : 'No data yet'}</p>
                       </div>
-                      <span className="flex-shrink-0 rounded-full bg-[#0052FF] px-3 py-1.5 text-xs font-bold text-white">Trade</span>
+                      {canTrade ? (
+                        <span className="flex-shrink-0 rounded-full bg-[#0052FF] px-3 py-1.5 text-xs font-bold text-white">Trade</span>
+                      ) : (
+                        <span className="flex-shrink-0 rounded-full bg-zinc-100 px-3 py-1.5 text-xs text-zinc-400 dark:bg-zinc-800">—</span>
+                      )}
                     </div>
                   </button>
                 )
