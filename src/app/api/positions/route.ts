@@ -28,7 +28,9 @@ export async function GET(req: NextRequest) {
   try {
     const userAddr = getAddress(addr)
     const epochId = BigInt(epoch)
-    const client = createPublicClient({ chain: base, transport: http('https://mainnet.base.org') })
+    // Use CDP RPC — public mainnet.base.org rate-limits multicall
+    const rpcUrl = process.env.PAYMASTER_URL || 'https://mainnet.base.org'
+    const client = createPublicClient({ chain: base, transport: http(rpcUrl) })
 
     // Fetch leaderboard to get all app names
     const [appRes, chainRes] = await Promise.all([
@@ -58,26 +60,51 @@ export async function GET(req: NextRequest) {
       })),
     ]
 
-    const results = await client.multicall({
-      contracts: calls.map(({ _meta: _unused, ...c }) => c),
-      allowFailure: true,
-    })
+    // Batch multicall into chunks of 25 to avoid rate limits
+    const chunkSize = 25
+    const allResults: Array<{ status: 'success'; result: unknown } | { status: 'failure'; error: Error }> = []
+    for (let i = 0; i < calls.length; i += chunkSize) {
+      const chunk = calls.slice(i, i + chunkSize)
+      const chunkResults = await client.multicall({
+        contracts: chunk.map(({ _meta: _unused, ...c }) => c),
+        allowFailure: true,
+      })
+      allResults.push(...chunkResults)
+    }
+    const results = allResults
 
     const positions = []
+    const debug: string[] = []
     for (let i = 0; i < results.length; i++) {
       const r = results[i]
-      if (r.status === 'success' && (r.result as bigint) > BigInt(0)) {
-        positions.push({
-          app: calls[i]._meta.name,
-          market: calls[i]._meta.market,
-          amount: formatUnits(r.result as bigint, 6),
-        })
+      if (r.status === 'success') {
+        const amt = r.result as bigint
+        if (amt > BigInt(0)) {
+          positions.push({
+            app: calls[i]._meta.name,
+            market: calls[i]._meta.market,
+            amount: formatUnits(amt, 6),
+          })
+        }
+      } else {
+        debug.push(`${calls[i]._meta.market}:${calls[i]._meta.name} = ERROR: ${r.error?.message?.slice(0, 50)}`)
       }
     }
     positions.sort((a, b) => Number(b.amount) - Number(a.amount))
     const total = positions.reduce((s, p) => s + Number(p.amount), 0)
 
-    return NextResponse.json({ positions, total })
+    return NextResponse.json({ 
+      positions, 
+      total,
+      _debug: {
+        appCount: appNames.length,
+        chainCount: chainNames.length,
+        callCount: calls.length,
+        resultCount: results.length,
+        errors: debug.slice(0, 5),
+        hasBaseApp: chainNames.includes('Base App'),
+      }
+    })
   } catch (e) {
     return NextResponse.json({ positions: [], total: 0, error: String(e) })
   }
