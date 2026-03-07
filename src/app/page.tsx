@@ -121,7 +121,7 @@ export default function Home() {
   const [txStep, setTxStep] = useState<'idle' | 'signing' | 'submitting' | 'confirmed' | 'error'>('idle')
   const [celebrate, setCelebrate] = useState(false)
   const [toast, setToast] = useState('')
-  const [activeTab, setActiveTab] = useState<'markets' | 'positions' | 'resolve' | 'profile'>('markets')
+  const [activeTab, setActiveTab] = useState<'markets' | 'positions' | 'results' | 'profile'>('markets')
   const [marketType, setMarketType] = useState<'app' | 'chain'>('chain')
   const [mounted, setMounted] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null)
@@ -584,13 +584,41 @@ export default function Home() {
               </div>
             )}
 
-            {activeTab === 'resolve' && (
-              <div className="border border-zinc-200 p-4 text-sm dark:border-zinc-800">
-                <p className="font-semibold">Resolution controls</p>
-                <p className="mt-1 text-zinc-500">Admin operations are available in the ops checklist.</p>
-                <a className="mt-3 inline-block rounded-full bg-zinc-100 px-4 py-2 text-xs font-bold dark:bg-zinc-800" href="/ops/checklist">
-                  Open Checklist
-                </a>
+            {activeTab === 'results' && (
+              <div className="space-y-4">
+                <div className="border border-zinc-200 p-4 dark:border-zinc-800">
+                  <p className="text-xs uppercase tracking-wide text-zinc-500">How It Works</p>
+                  <div className="mt-3 space-y-3 text-sm text-zinc-600 dark:text-zinc-400">
+                    <div className="flex items-start gap-2">
+                      <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0052FF] text-[10px] font-bold text-white">1</span>
+                      <p>Markets open weekly. Predict which apps will top the Base leaderboard.</p>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0052FF] text-[10px] font-bold text-white">2</span>
+                      <p>Positions lock when the epoch ends. No new predictions after lock.</p>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0052FF] text-[10px] font-bold text-white">3</span>
+                      <p>Winners are resolved from the official Base leaderboard snapshot. Payouts distribute automatically.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border border-zinc-200 p-4 dark:border-zinc-800">
+                  <p className="text-xs uppercase tracking-wide text-zinc-500">Past Results</p>
+                  <div className="mt-3 grid min-h-[120px] place-items-center text-center">
+                    <div>
+                      <p className="text-lg font-bold tracking-tight">No results yet</p>
+                      <p className="mt-1 text-sm text-zinc-500">Past winners and payouts will appear here after the first epoch resolves.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border border-zinc-200 p-4 text-xs text-zinc-500 dark:border-zinc-800">
+                  <p className="font-semibold text-zinc-700 dark:text-zinc-300">Transparency</p>
+                  <p className="mt-1">Markets are resolved using official Base leaderboard snapshots. Each resolution includes an on-chain snapshot hash for independent verification.</p>
+                  <p className="mt-2">2% protocol fee · Contract on <a href={`https://basescan.org/address/${MARKET_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="text-[#0052FF] underline">Basescan</a></p>
+                </div>
               </div>
             )}
 
@@ -647,7 +675,7 @@ export default function Home() {
           {[
             { key: 'markets', label: 'Markets', icon: '◫' },
             { key: 'positions', label: 'Positions', icon: '◎' },
-            { key: 'resolve', label: 'Resolve', icon: '◉' },
+            { key: 'results', label: 'Results', icon: '◉' },
             { key: 'profile', label: 'Profile', icon: '◌' },
           ].map((item) => (
             <button
