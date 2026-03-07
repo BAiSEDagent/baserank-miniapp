@@ -140,12 +140,12 @@ export function BetSheet({
 
             <div className="mt-auto px-4 pb-8">
               {swipeBusy || busy ? (
-                <div className="flex h-12 items-center justify-center rounded-full bg-[#0052FF] font-semibold text-white">
+                <div className="flex h-14 items-center justify-center rounded-full bg-[#0052FF] font-semibold text-white">
                   <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                   Confirming with Smart Wallet...
                 </div>
               ) : (
-                <div ref={trackRef} className={`relative h-12 w-full rounded-full ${canSubmit ? 'bg-[#0052FF]' : 'bg-zinc-600'}`}>
+                <div ref={trackRef} className={`relative h-14 w-full rounded-full p-1 ${canSubmit ? 'bg-[#0052FF]' : 'bg-zinc-600'}`}>
                   <div className={`pointer-events-none absolute inset-0 grid place-items-center text-sm font-medium ${canSubmit ? 'text-white/90' : 'text-zinc-400'}`}>
                     {!connected ? 'Connect to Predict' : !canSubmit ? 'Enter amount (min $0.01)' : 'Swipe to Predict →'}
                   </div>
@@ -156,9 +156,9 @@ export function BetSheet({
                       dragElastic={0.05}
                       style={{ x }}
                       onDragEnd={onDragEnd}
-                      className="absolute left-1 top-1 grid h-11 w-11 place-items-center rounded-full bg-white text-[#0052FF]"
+                      className="relative grid h-12 w-12 place-items-center rounded-full bg-white text-[#0052FF] shadow-md"
                     >
-                      »
+                      <span className="text-lg font-bold leading-none">»</span>
                     </motion.button>
                   )}
                 </div>
