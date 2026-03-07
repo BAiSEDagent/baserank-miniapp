@@ -772,7 +772,7 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
   )
 }
 
-type PoolSummary = { appMarket: { pool: string; state: number }; chainMarket: { pool: string; state: number }; totalPool: string }
+type PoolSummary = { appMarket: { pool: string; state: number; stateLabel?: string }; chainMarket: { pool: string; state: number; stateLabel?: string }; totalPool: string }
 
 function ResultsTab({ marketAddress }: { marketAddress: `0x${string}` | undefined }) {
   const [pools, setPools] = useState<PoolSummary | null>(null)
@@ -809,7 +809,7 @@ function ResultsTab({ marketAddress }: { marketAddress: `0x${string}` | undefine
                 <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">A</span>
                 <div>
                   <p className="text-sm font-semibold">App Market</p>
-                  <p className="text-xs text-zinc-500">{pools.appMarket.state === 1 ? 'Open' : pools.appMarket.state === 2 ? 'Locked' : pools.appMarket.state === 3 ? 'Resolved' : 'Inactive'}</p>
+                  <p className="text-xs text-zinc-500">{pools.appMarket.stateLabel ?? (pools.appMarket.state === 1 ? 'Open' : pools.appMarket.state === 2 ? 'Locked' : pools.appMarket.state === 3 ? 'Resolved' : 'Inactive')}</p>
                 </div>
               </div>
               <span className="text-lg font-bold">${Number(pools.appMarket.pool).toFixed(2)}</span>
@@ -819,7 +819,7 @@ function ResultsTab({ marketAddress }: { marketAddress: `0x${string}` | undefine
                 <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">C</span>
                 <div>
                   <p className="text-sm font-semibold">Chain Market</p>
-                  <p className="text-xs text-zinc-500">{pools.chainMarket.state === 1 ? 'Open' : pools.chainMarket.state === 2 ? 'Locked' : pools.chainMarket.state === 3 ? 'Resolved' : 'Inactive'}</p>
+                  <p className="text-xs text-zinc-500">{pools.chainMarket.stateLabel ?? (pools.chainMarket.state === 1 ? 'Open' : pools.chainMarket.state === 2 ? 'Locked' : pools.chainMarket.state === 3 ? 'Resolved' : 'Inactive')}</p>
                 </div>
               </div>
               <span className="text-lg font-bold">${Number(pools.chainMarket.pool).toFixed(2)}</span>
