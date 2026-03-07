@@ -101,6 +101,17 @@ export default function Home() {
     return (appMarket as { lockTime?: bigint } | undefined)?.lockTime ?? null
   }, [appMarket])
 
+  const weekLabel = useMemo(() => {
+    const oT = (appMarket as { openTime?: bigint } | undefined)?.openTime
+    const lT = (appMarket as { lockTime?: bigint } | undefined)?.lockTime
+    if (!oT || !lT) return null
+    const fmt = (ts: bigint) => {
+      const d = new Date(Number(ts) * 1000)
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+    }
+    return `Week of ${fmt(oT)} – ${fmt(lT)}`
+  }, [appMarket])
+
   const [open, setOpen] = useState(false)
   const [apps, setApps] = useState<LeaderboardEntry[]>([])
   const [appsLoading, setAppsLoading] = useState(true)
@@ -448,7 +459,7 @@ export default function Home() {
             <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
               {totalPoolUsdc > 0 ? 'Live on Base' : 'Markets open'}
             </span>
-            <span className="text-zinc-500">Epoch #{WEEK_ID.toString()}</span>
+            <span className="text-zinc-500">{weekLabel ?? `Epoch #${WEEK_ID.toString()}`}</span>
           </div>
         </section>
 
