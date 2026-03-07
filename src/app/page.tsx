@@ -148,7 +148,7 @@ export default function Home() {
           lastUpdated?: string | null
         }
         if (cancelled) return
-        const list = data.entries?.slice(0, 25) ?? []
+        const list = data.entries?.slice(0, 50) ?? []
         setApps(list)
         if (list.length > 0) setSelectedApp((prev) => (list.some((x) => x.projectName === prev) ? prev : list[0].projectName))
         setLastUpdateMs(data.lastUpdated ? new Date(data.lastUpdated).getTime() : data.fetchedAt ? new Date(data.fetchedAt).getTime() : Date.now())
