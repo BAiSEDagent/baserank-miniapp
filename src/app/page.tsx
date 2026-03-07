@@ -28,7 +28,7 @@ const _raw = (process.env.NEXT_PUBLIC_MARKET_ADDRESS ?? '').replace(/^["'\s]+|["
 const MARKET_ADDRESS: `0x${string}` | undefined = _raw
   ? (() => { try { return getAddress(_raw) } catch { return undefined } })()
   : undefined
-const WEEK_ID = BigInt(20260307)
+const WEEK_ID = BigInt(20260311)
 const TARGET_CHAIN = base.id
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const
 const MIN_STAKE_USDC = 0.01 // $0.01 minimum = 10000 in 6 decimals
