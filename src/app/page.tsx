@@ -22,13 +22,13 @@ import { CountdownTimer } from '@/components/countdown-timer'
 import Image from 'next/image'
 import { requestBaseNotificationPermission } from '@/lib/notifications'
 import { motion } from 'framer-motion'
-import { BaseRankMarketABI } from '@/lib/contracts/BaseRankMarketABI'
+import { BaseRankMarketV2ABI } from '@/lib/contracts/BaseRankMarketV2ABI'
 
 const _raw = (process.env.NEXT_PUBLIC_MARKET_ADDRESS ?? '').replace(/^["'\s]+|["'\s]+$/g, '')
 const MARKET_ADDRESS: `0x${string}` | undefined = _raw
   ? (() => { try { return getAddress(_raw) } catch { return undefined } })()
   : undefined
-const WEEK_ID = BigInt(20260306)
+const WEEK_ID = BigInt(20260307)
 const TARGET_CHAIN = base.id
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const
 const MIN_STAKE_USDC = 0.01 // $0.01 minimum = 10000 in 6 decimals
@@ -78,7 +78,7 @@ export default function Home() {
   // Live market stats from contract
   const { data: appMarket } = useReadContract({
     address: MARKET_ADDRESS,
-    abi: BaseRankMarketABI,
+    abi: BaseRankMarketV2ABI,
     functionName: 'marketDetails',
     args: [WEEK_ID, 0],
     chainId: base.id,
@@ -86,7 +86,7 @@ export default function Home() {
   })
   const { data: chainMarket } = useReadContract({
     address: MARKET_ADDRESS,
-    abi: BaseRankMarketABI,
+    abi: BaseRankMarketV2ABI,
     functionName: 'marketDetails',
     args: [WEEK_ID, 1],
     chainId: base.id,
@@ -235,7 +235,7 @@ export default function Home() {
       // Step 2: Submit prediction
       await writeContractAsync({
         address: MARKET_ADDRESS,
-        abi: BaseRankMarketABI,
+        abi: BaseRankMarketV2ABI,
         functionName: 'predict',
         args: [WEEK_ID, marketTypeInt, appId, value],
         chainId: TARGET_CHAIN,

@@ -3,14 +3,7 @@ import { NextResponse } from 'next/server'
 export const revalidate = 60
 export const dynamic = 'force-dynamic'
 
-// Candidates registered on-chain for epoch 20260306
-// Only these names are valid for predictions
-const REGISTERED_CANDIDATES = new Set([
-  'Planet IX', 'Clash of Coins', 'Rips', 'Arbase GM', 'Avantis',
-  'Arbase Clicker', 'Aerodrome', 'Legend of Base', '$QR', 'Pixotchi Mini',
-  'BETRMINT', 'Base Me', 'Hydrex', 'Morpho', 'Rise of Farms',
-  'Wasabi', 'BaseHub', 'Moonwell', 'DropCast', 'Virtuals',
-])
+// V2: All candidates are valid — no pre-registration needed
 
 function nextWeeklyResetIso(now = new Date()) {
   // Base leaderboard UI countdown anchor (Wednesday 20:00 UTC)
@@ -53,7 +46,8 @@ export async function GET(req: Request) {
       }>
     }
 
-    const allEntries = (raw.entries ?? []).slice(0, 25).map((e) => ({
+    // V2: All leaderboard entries are tradeable — any candidateId works
+    const entries = (raw.entries ?? []).slice(0, 30).map((e) => ({
       rank: e.rank,
       projectId: e.projectId,
       projectName: e.projectName,
@@ -61,25 +55,8 @@ export async function GET(req: Request) {
       weeklyTransactingUsers: e.weeklyTransactingUsers ?? '0',
       totalTransactions: e.totalTransactions ?? '0',
       iconUrl: e.iconUrl ?? '',
-      tradeable: REGISTERED_CANDIDATES.has(e.projectName),
+      tradeable: true,
     }))
-    
-    // Add any registered candidates missing from the top 25
-    const seen = new Set(allEntries.map((e) => e.projectName))
-    const missing = [...REGISTERED_CANDIDATES].filter((n) => !seen.has(n))
-    const entries = [
-      ...allEntries,
-      ...missing.map((name, i) => ({
-        rank: allEntries.length + i + 1,
-        projectId: name.toLowerCase().replace(/\s+/g, '-'),
-        projectName: name,
-        appUrl: '',
-        weeklyTransactingUsers: '0',
-        totalTransactions: '0',
-        iconUrl: '',
-        tradeable: true,
-      })),
-    ]
 
     return NextResponse.json({
       source: `base.dev:v1/leaderboard:${leaderboardType}`,
