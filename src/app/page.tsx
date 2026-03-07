@@ -418,8 +418,8 @@ export default function Home() {
             <p className="text-xs uppercase tracking-widest text-zinc-500">Base Mini App</p>
             <h1 className="flex items-center gap-2 text-xl font-semibold text-zinc-950 dark:text-white">
               BaseRank
-              <span className="inline-flex items-center gap-1 text-[10px] font-mono text-emerald-400">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> LIVE
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono text-[#0052FF]">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-[#0052FF]" /> LIVE
               </span>
             </h1>
           </div>
@@ -456,7 +456,7 @@ export default function Home() {
             {totalPoolUsdc >= 1000 ? `$${(totalPoolUsdc / 1000).toFixed(1)}K` : `$${totalPoolUsdc.toFixed(0)}`}
           </p>
           <div className="mt-2 flex items-center gap-3 text-xs">
-            <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+            <span className="rounded-full bg-blue-50 px-2 py-1 font-semibold text-[#0052FF] dark:bg-blue-950/40 dark:text-blue-300">
               {totalPoolUsdc > 0 ? 'Live on Base' : 'Markets open'}
             </span>
             <span className="text-zinc-500">{weekLabel ?? `Epoch #${WEEK_ID.toString()}`}</span>
