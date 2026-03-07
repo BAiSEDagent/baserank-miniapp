@@ -640,7 +640,7 @@ export default function Home() {
 
 type Position = { app: string; market: string; amount: string }
 
-function PositionsTab({ address, isConnected, weekId, onConnect, onExplore }: {
+function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, onExplore }: {
   address: `0x${string}` | undefined
   isConnected: boolean
   marketAddress: `0x${string}` | undefined
@@ -649,24 +649,47 @@ function PositionsTab({ address, isConnected, weekId, onConnect, onExplore }: {
   onExplore: () => void
 }) {
   const [positions, setPositions] = useState<Position[]>([])
-  const [totalStake, setTotalStake] = useState(0)
   const [loaded, setLoaded] = useState(false)
 
+  // Use wagmi hooks for on-chain total (correct address from wallet provider)
+  const { data: appStakeRaw } = useReadContract({
+    address: marketAddress,
+    abi: BaseRankMarketV2ABI,
+    functionName: 'userTotalStake',
+    args: [weekId, 0, address!],
+    chainId: base.id,
+    query: { enabled: !!marketAddress && !!address },
+  })
+  const { data: chainStakeRaw } = useReadContract({
+    address: marketAddress,
+    abi: BaseRankMarketV2ABI,
+    functionName: 'userTotalStake',
+    args: [weekId, 1, address!],
+    chainId: base.id,
+    query: { enabled: !!marketAddress && !!address },
+  })
+
+  const appStakeUsdc = Number(appStakeRaw ?? BigInt(0)) / 1e6
+  const chainStakeUsdc = Number(chainStakeRaw ?? BigInt(0)) / 1e6
+  const totalStake = appStakeUsdc + chainStakeUsdc
+  const hasOnChainStake = totalStake > 0
+
+  // Fetch detailed per-app breakdown from API
   useEffect(() => {
-    if (!address) { setLoaded(true); return }
+    if (!address || !hasOnChainStake) { setLoaded(true); return }
     let cancelled = false
     async function load() {
       try {
         const r = await fetch(`/api/positions?address=${address}&epoch=${weekId.toString()}`, { cache: 'no-store' })
         const d = await r.json()
-        if (!cancelled) { setPositions(d.positions ?? []); setTotalStake(d.total ?? 0); setLoaded(true) }
+        if (!cancelled) { setPositions(d.positions ?? []); setLoaded(true) }
       } catch {
         if (!cancelled) setLoaded(true)
       }
     }
     load()
     return () => { cancelled = true }
-  }, [address, weekId])
+  }, [address, weekId, hasOnChainStake])
 
   return (
     <div className="space-y-3">
@@ -688,11 +711,11 @@ function PositionsTab({ address, isConnected, weekId, onConnect, onExplore }: {
             </button>
           </div>
         </div>
-      ) : !loaded ? (
+      ) : appStakeRaw === undefined && chainStakeRaw === undefined ? (
         <div className="grid min-h-[120px] place-items-center border border-zinc-200 p-6 text-center dark:border-zinc-800">
           <p className="text-sm text-zinc-500">Loading positions...</p>
         </div>
-      ) : positions.length === 0 ? (
+      ) : !hasOnChainStake ? (
         <div className="grid min-h-[220px] place-items-center border border-zinc-200 p-6 text-center dark:border-zinc-800">
           <div>
             <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-100 text-xl dark:bg-zinc-900">◎</div>
@@ -703,7 +726,7 @@ function PositionsTab({ address, isConnected, weekId, onConnect, onExplore }: {
             </button>
           </div>
         </div>
-      ) : (
+      ) : positions.length > 0 ? (
         <div className="space-y-2">
           {positions.map((p, i) => (
             <div key={i} className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
@@ -718,15 +741,41 @@ function PositionsTab({ address, isConnected, weekId, onConnect, onExplore }: {
           ))}
           <p className="px-1 text-xs text-zinc-500">Positions lock when the epoch ends. Claim winnings after resolution.</p>
         </div>
+      ) : (
+        <div className="space-y-2">
+          {appStakeUsdc > 0 && (
+            <div className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
+              <div className="flex items-center gap-2">
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">A</span>
+                <span className="text-sm font-semibold">App Market</span>
+              </div>
+              <span className="font-bold">${appStakeUsdc.toFixed(2)}</span>
+            </div>
+          )}
+          {chainStakeUsdc > 0 && (
+            <div className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
+              <div className="flex items-center gap-2">
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">C</span>
+                <span className="text-sm font-semibold">Chain Market</span>
+              </div>
+              <span className="font-bold">${chainStakeUsdc.toFixed(2)}</span>
+            </div>
+          )}
+          <p className="px-1 text-xs text-zinc-500">Positions lock when the epoch ends. Claim winnings after resolution.</p>
+        </div>
+      )}
+
+      {address && (
+        <p className="px-1 text-[10px] text-zinc-400 font-mono">{address.slice(0, 6)}...{address.slice(-4)}</p>
       )}
     </div>
   )
 }
 
-type ActivityItem = { user: string; amount: string; marketType: string; txHash: string }
+type PoolSummary = { appMarket: { pool: string; state: number }; chainMarket: { pool: string; state: number }; totalPool: string }
 
 function ResultsTab({ marketAddress }: { marketAddress: `0x${string}` | undefined }) {
-  const [activity, setActivity] = useState<ActivityItem[]>([])
+  const [pools, setPools] = useState<PoolSummary | null>(null)
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
@@ -735,7 +784,7 @@ function ResultsTab({ marketAddress }: { marketAddress: `0x${string}` | undefine
       try {
         const r = await fetch('/api/activity', { cache: 'no-store' })
         const d = await r.json()
-        if (!cancelled) { setActivity(d.activity ?? []); setLoaded(true) }
+        if (!cancelled) { setPools(d); setLoaded(true) }
       } catch {
         if (!cancelled) setLoaded(true)
       }
@@ -748,26 +797,39 @@ function ResultsTab({ marketAddress }: { marketAddress: `0x${string}` | undefine
   return (
     <div className="space-y-4">
       <div className="border border-zinc-200 p-4 dark:border-zinc-800">
-        <p className="text-xs uppercase tracking-wide text-zinc-500">Live Activity</p>
+        <p className="text-xs uppercase tracking-wide text-zinc-500">Market Pools</p>
         {!loaded ? (
           <p className="mt-3 text-sm text-zinc-400">Loading...</p>
-        ) : activity.length === 0 ? (
-          <div className="mt-3 grid min-h-[80px] place-items-center text-center">
-            <p className="text-sm text-zinc-500">No predictions yet this epoch. Be the first.</p>
-          </div>
+        ) : !pools ? (
+          <p className="mt-3 text-sm text-zinc-500">Unable to load market data.</p>
         ) : (
-          <div className="mt-3 space-y-2">
-            {activity.map((a, i) => (
-              <div key={`${a.txHash}-${i}`} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="h-6 w-6 rounded-full bg-[#0052FF]/10 grid place-items-center text-[10px] font-bold text-[#0052FF]">
-                    {a.marketType === 'App' ? 'A' : 'C'}
-                  </span>
-                  <span className="font-mono text-xs text-zinc-600 dark:text-zinc-400">{a.user}</span>
+          <div className="mt-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">A</span>
+                <div>
+                  <p className="text-sm font-semibold">App Market</p>
+                  <p className="text-xs text-zinc-500">{pools.appMarket.state === 1 ? 'Open' : pools.appMarket.state === 2 ? 'Locked' : pools.appMarket.state === 3 ? 'Resolved' : 'Inactive'}</p>
                 </div>
-                <span className="font-semibold">${Number(a.amount).toFixed(2)}</span>
               </div>
-            ))}
+              <span className="text-lg font-bold">${Number(pools.appMarket.pool).toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">C</span>
+                <div>
+                  <p className="text-sm font-semibold">Chain Market</p>
+                  <p className="text-xs text-zinc-500">{pools.chainMarket.state === 1 ? 'Open' : pools.chainMarket.state === 2 ? 'Locked' : pools.chainMarket.state === 3 ? 'Resolved' : 'Inactive'}</p>
+                </div>
+              </div>
+              <span className="text-lg font-bold">${Number(pools.chainMarket.pool).toFixed(2)}</span>
+            </div>
+            <div className="border-t border-zinc-200 pt-2 dark:border-zinc-700">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-zinc-500">Total Pool</span>
+                <span className="text-lg font-extrabold">${pools.totalPool}</span>
+              </div>
+            </div>
           </div>
         )}
       </div>
