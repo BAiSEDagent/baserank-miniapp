@@ -97,7 +97,7 @@ export function BetSheet({
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-            className="fixed bottom-0 left-0 right-0 z-50 mx-auto flex h-[88vh] w-full max-w-md flex-col rounded-t-3xl bg-white px-4 pt-4 text-zinc-950 dark:bg-zinc-950 dark:text-white"
+            className="fixed bottom-0 left-0 right-0 z-50 mx-auto flex h-[88vh] w-full max-w-md flex-col rounded-t-3xl bg-white px-6 pt-4 text-zinc-950 dark:bg-zinc-950 dark:text-white"
           >
             <div className="mx-auto h-1.5 w-12 cursor-grab rounded-full bg-zinc-300 active:cursor-grabbing dark:bg-zinc-700" />
 

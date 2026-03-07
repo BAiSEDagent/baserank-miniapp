@@ -585,41 +585,7 @@ export default function Home() {
             )}
 
             {activeTab === 'results' && (
-              <div className="space-y-4">
-                <div className="border border-zinc-200 p-4 dark:border-zinc-800">
-                  <p className="text-xs uppercase tracking-wide text-zinc-500">How It Works</p>
-                  <div className="mt-3 space-y-3 text-sm text-zinc-600 dark:text-zinc-400">
-                    <div className="flex items-start gap-2">
-                      <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0052FF] text-[10px] font-bold text-white">1</span>
-                      <p>Markets open weekly. Predict which apps will top the Base leaderboard.</p>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0052FF] text-[10px] font-bold text-white">2</span>
-                      <p>Positions lock when the epoch ends. No new predictions after lock.</p>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0052FF] text-[10px] font-bold text-white">3</span>
-                      <p>Winners are resolved from the official Base leaderboard snapshot. Payouts distribute automatically.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="border border-zinc-200 p-4 dark:border-zinc-800">
-                  <p className="text-xs uppercase tracking-wide text-zinc-500">Past Results</p>
-                  <div className="mt-3 grid min-h-[120px] place-items-center text-center">
-                    <div>
-                      <p className="text-lg font-bold tracking-tight">No results yet</p>
-                      <p className="mt-1 text-sm text-zinc-500">Past winners and payouts will appear here after the first epoch resolves.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="border border-zinc-200 p-4 text-xs text-zinc-500 dark:border-zinc-800">
-                  <p className="font-semibold text-zinc-700 dark:text-zinc-300">Transparency</p>
-                  <p className="mt-1">Markets are resolved using official Base leaderboard snapshots. Each resolution includes an on-chain snapshot hash for independent verification.</p>
-                  <p className="mt-2">2% protocol fee · Contract on <a href={`https://basescan.org/address/${MARKET_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="text-[#0052FF] underline">Basescan</a></p>
-                </div>
-              </div>
+              <ResultsTab marketAddress={MARKET_ADDRESS} />
             )}
 
             {activeTab === 'profile' && (
@@ -666,7 +632,7 @@ export default function Home() {
         )}
 
         <footer className="mt-6 border-t border-zinc-200 p-3 text-[11px] text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-          <p>1% protocol fee. V1 markets resolved manually from official Base leaderboard snapshots.</p>
+          <p>2% protocol fee. Markets resolved from official Base leaderboard snapshots.</p>
         </footer>
       </div>
 
@@ -686,7 +652,7 @@ export default function Home() {
               <div className="relative flex flex-col items-center justify-center gap-1">
                 <span className={`text-sm ${activeTab === item.key ? 'opacity-100' : 'opacity-70'}`}>{item.icon}</span>
                 <span>{item.label}</span>
-{/* notification dot removed — was always-on with no positions check */}
+
               </div>
             </button>
           ))}
@@ -703,5 +669,86 @@ export default function Home() {
         poolUsdc={totalPoolUsdc}
       />
     </main>
+  )
+}
+
+type ActivityItem = { user: string; amount: string; marketType: string; txHash: string }
+
+function ResultsTab({ marketAddress }: { marketAddress: `0x${string}` | undefined }) {
+  const [activity, setActivity] = useState<ActivityItem[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/activity')
+      .then((r) => r.json())
+      .then((d) => { setActivity(d.activity ?? []); setLoaded(true) })
+      .catch(() => setLoaded(true))
+    const iv = setInterval(() => {
+      fetch('/api/activity').then((r) => r.json()).then((d) => setActivity(d.activity ?? [])).catch(() => {})
+    }, 15_000)
+    return () => clearInterval(iv)
+  }, [])
+
+  return (
+    <div className="space-y-4">
+      <div className="border border-zinc-200 p-4 dark:border-zinc-800">
+        <p className="text-xs uppercase tracking-wide text-zinc-500">Live Activity</p>
+        {!loaded ? (
+          <p className="mt-3 text-sm text-zinc-400">Loading...</p>
+        ) : activity.length === 0 ? (
+          <div className="mt-3 grid min-h-[80px] place-items-center text-center">
+            <p className="text-sm text-zinc-500">No predictions yet this epoch. Be the first.</p>
+          </div>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {activity.map((a, i) => (
+              <div key={`${a.txHash}-${i}`} className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="h-6 w-6 rounded-full bg-[#0052FF]/10 grid place-items-center text-[10px] font-bold text-[#0052FF]">
+                    {a.marketType === 'App' ? 'A' : 'C'}
+                  </span>
+                  <span className="font-mono text-xs text-zinc-600 dark:text-zinc-400">{a.user}</span>
+                </div>
+                <span className="font-semibold">${Number(a.amount).toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="border border-zinc-200 p-4 dark:border-zinc-800">
+        <p className="text-xs uppercase tracking-wide text-zinc-500">How It Works</p>
+        <div className="mt-3 space-y-3 text-sm text-zinc-600 dark:text-zinc-400">
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0052FF] text-[10px] font-bold text-white">1</span>
+            <p>Markets open weekly. Predict which apps will top the Base leaderboard.</p>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0052FF] text-[10px] font-bold text-white">2</span>
+            <p>Positions lock when the epoch ends. No new predictions after lock.</p>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0052FF] text-[10px] font-bold text-white">3</span>
+            <p>Winners are resolved from the official Base leaderboard snapshot. Payouts distribute automatically.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="border border-zinc-200 p-4 dark:border-zinc-800">
+        <p className="text-xs uppercase tracking-wide text-zinc-500">Past Results</p>
+        <div className="mt-3 grid min-h-[80px] place-items-center text-center">
+          <div>
+            <p className="text-lg font-bold tracking-tight">No results yet</p>
+            <p className="mt-1 text-sm text-zinc-500">Winners and payouts appear here after each epoch resolves.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="border border-zinc-200 p-4 text-xs text-zinc-500 dark:border-zinc-800">
+        <p className="font-semibold text-zinc-700 dark:text-zinc-300">Transparency</p>
+        <p className="mt-1">Markets are resolved using official Base leaderboard snapshots. Each resolution includes an on-chain snapshot hash for verification.</p>
+        <p className="mt-2">2% protocol fee · Contract on <a href={`https://basescan.org/address/${marketAddress}`} target="_blank" rel="noopener noreferrer" className="text-[#0052FF] underline">Basescan</a></p>
+      </div>
+    </div>
   )
 }
