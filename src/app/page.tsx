@@ -638,6 +638,8 @@ export default function Home() {
   )
 }
 
+type Position = { app: string; market: string; amount: number }
+
 function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, onExplore }: {
   address: `0x${string}` | undefined
   isConnected: boolean
@@ -646,34 +648,80 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
   onConnect: () => void
   onExplore: () => void
 }) {
-  const { data: appStake } = useReadContract({
-    address: marketAddress,
-    abi: BaseRankMarketV2ABI,
-    functionName: 'userTotalStake',
-    args: [weekId, 0, address!],
-    chainId: base.id,
-    query: { enabled: !!marketAddress && !!address, refetchInterval: 15000 },
-  })
-  const { data: chainStake } = useReadContract({
-    address: marketAddress,
-    abi: BaseRankMarketV2ABI,
-    functionName: 'userTotalStake',
-    args: [weekId, 1, address!],
-    chainId: base.id,
-    query: { enabled: !!marketAddress && !!address, refetchInterval: 15000 },
-  })
+  const [positions, setPositions] = useState<Position[]>([])
+  const [loaded, setLoaded] = useState(false)
 
-  const totalStakeUsdc = Number((appStake ?? BigInt(0)) + (chainStake ?? BigInt(0))) / 1e6
-  const appStakeUsdc = Number(appStake ?? BigInt(0)) / 1e6
-  const chainStakeUsdc = Number(chainStake ?? BigInt(0)) / 1e6
-  const hasPositions = totalStakeUsdc > 0
+  useEffect(() => {
+    if (!address || !marketAddress) return
+    let cancelled = false
+    async function load() {
+      try {
+        const { createPublicClient, http, parseAbiItem, formatUnits } = await import('viem')
+        const { base: baseChain } = await import('viem/chains')
+        const pc = createPublicClient({ chain: baseChain, transport: http() })
+        const block = await pc.getBlockNumber()
+        const fromBlock = block - BigInt(50000) // ~2.5 days on Base
+
+        const logs = await pc.getLogs({
+          address: marketAddress,
+          event: parseAbiItem('event Predicted(uint64 indexed epochId, uint8 indexed marketType, address indexed user, bytes32 candidateId, uint256 amount)'),
+          args: { epochId: weekId, user: address },
+          fromBlock: fromBlock > BigInt(0) ? fromBlock : BigInt(0),
+          toBlock: 'latest',
+        })
+
+        // Group by candidateId + marketType, sum amounts
+        const map = new Map<string, { candidateId: string; market: string; total: bigint }>()
+        for (const log of logs) {
+          const cid = log.args.candidateId ?? ''
+          const mt = log.args.marketType === 0 ? 'App' : 'Chain'
+          const key = `${mt}:${cid}`
+          const existing = map.get(key)
+          const amt = log.args.amount ?? BigInt(0)
+          if (existing) {
+            existing.total += amt
+          } else {
+            map.set(key, { candidateId: cid, market: mt, total: amt })
+          }
+        }
+
+        // Reverse-map candidateId to app name using leaderboard
+        const appRes = await fetch('/api/leaderboard?market=app', { cache: 'no-store' })
+        const chainRes = await fetch('/api/leaderboard?market=chain', { cache: 'no-store' })
+        const appData = await appRes.json()
+        const chainData = await chainRes.json()
+        const nameMap = new Map<string, string>()
+        for (const e of [...(appData.entries ?? []), ...(chainData.entries ?? [])]) {
+          const appHash = keccak256(encodePacked(['string'], [`app:${e.projectName}`]))
+          const chainHash = keccak256(encodePacked(['string'], [`chain:${e.projectName}`]))
+          nameMap.set(`App:${appHash}`, e.projectName)
+          nameMap.set(`Chain:${chainHash}`, e.projectName)
+        }
+
+        const pos: Position[] = []
+        for (const [key, val] of map) {
+          const name = nameMap.get(key) ?? `Unknown (${val.candidateId.slice(0, 10)}...)`
+          pos.push({ app: name, market: val.market, amount: Number(formatUnits(val.total, 6)) })
+        }
+        pos.sort((a, b) => b.amount - a.amount)
+
+        if (!cancelled) { setPositions(pos); setLoaded(true) }
+      } catch {
+        if (!cancelled) setLoaded(true)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [address, marketAddress, weekId])
+
+  const totalStake = positions.reduce((s, p) => s + p.amount, 0)
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
         <div>
           <p className="text-xs uppercase tracking-wide text-zinc-500">Your total stake</p>
-          <p className="text-2xl font-extrabold tracking-tight">${totalStakeUsdc.toFixed(2)} USDC</p>
+          <p className="text-2xl font-extrabold tracking-tight">${totalStake.toFixed(2)} USDC</p>
         </div>
       </div>
 
@@ -688,7 +736,11 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
             </button>
           </div>
         </div>
-      ) : !hasPositions ? (
+      ) : !loaded ? (
+        <div className="grid min-h-[120px] place-items-center border border-zinc-200 p-6 text-center dark:border-zinc-800">
+          <p className="text-sm text-zinc-500">Loading positions...</p>
+        </div>
+      ) : positions.length === 0 ? (
         <div className="grid min-h-[220px] place-items-center border border-zinc-200 p-6 text-center dark:border-zinc-800">
           <div>
             <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-100 text-xl dark:bg-zinc-900">◎</div>
@@ -701,24 +753,17 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
         </div>
       ) : (
         <div className="space-y-2">
-          {appStakeUsdc > 0 && (
-            <div className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
+          {positions.map((p, i) => (
+            <div key={i} className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
               <div className="flex items-center gap-2">
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">A</span>
-                <span className="text-sm font-semibold">Base App Market</span>
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">
+                  {p.market === 'App' ? 'A' : 'C'}
+                </span>
+                <span className="text-sm font-semibold">{p.app}</span>
               </div>
-              <span className="font-bold">${appStakeUsdc.toFixed(2)}</span>
+              <span className="font-bold">${p.amount.toFixed(2)}</span>
             </div>
-          )}
-          {chainStakeUsdc > 0 && (
-            <div className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="flex items-center gap-2">
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">C</span>
-                <span className="text-sm font-semibold">Base Chain Market</span>
-              </div>
-              <span className="font-bold">${chainStakeUsdc.toFixed(2)}</span>
-            </div>
-          )}
+          ))}
           <p className="px-1 text-xs text-zinc-500">Positions lock when the epoch ends. Claim winnings after resolution.</p>
         </div>
       )}
