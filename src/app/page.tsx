@@ -262,6 +262,27 @@ export default function Home() {
               : 'Using standard transaction path'
         setToast(fallbackMsg)
         setTimeout(() => setToast(''), 2600)
+        // Check USDC allowance before calling predict — predict requires prior approval
+        const { createPublicClient, http } = await import('viem')
+        const { base: baseChain } = await import('viem/chains')
+        const publicClient = createPublicClient({ chain: baseChain, transport: http() })
+        const allowance = await publicClient.readContract({
+          address: USDC_BASE,
+          abi: [{ type: 'function', name: 'allowance', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] }],
+          functionName: 'allowance',
+          args: [address as `0x${string}`, MARKET_ADDRESS],
+        })
+        if ((allowance as bigint) < value) {
+          setToast('Approving USDC spend…')
+          await writeContractAsync({
+            address: USDC_BASE,
+            abi: [{ type: 'function', name: 'approve', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] }],
+            functionName: 'approve',
+            args: [MARKET_ADDRESS, value],
+            chainId: TARGET_CHAIN,
+          })
+          setToast('Submitting prediction…')
+        }
         await writeContractAsync({
           address: MARKET_ADDRESS,
           abi: BaseRankMarketABI,
