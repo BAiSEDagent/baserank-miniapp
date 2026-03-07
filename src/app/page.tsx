@@ -25,9 +25,9 @@ import { requestBaseNotificationPermission } from '@/lib/notifications'
 import { motion } from 'framer-motion'
 import { BaseRankMarketABI } from '@/lib/contracts/BaseRankMarketABI'
 
-const _raw = process.env.NEXT_PUBLIC_MARKET_ADDRESS
+const _raw = (process.env.NEXT_PUBLIC_MARKET_ADDRESS ?? '').replace(/^["']|["']$/g, '').trim()
 const MARKET_ADDRESS: `0x${string}` | undefined = _raw
-  ? (() => { try { return getAddress(_raw) } catch { return _raw as `0x${string}` } })()
+  ? (() => { try { return getAddress(_raw) } catch { return undefined } })()
   : undefined
 const WEEK_ID = BigInt(20260306)
 const TARGET_CHAIN = base.id
