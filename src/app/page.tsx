@@ -121,7 +121,7 @@ export default function Home() {
   const [txStep, setTxStep] = useState<'idle' | 'signing' | 'submitting' | 'confirmed' | 'error'>('idle')
   const [celebrate, setCelebrate] = useState(false)
   const [toast, setToast] = useState('')
-  const [activeTab, setActiveTab] = useState<'markets' | 'positions' | 'results' | 'profile'>('markets')
+  const [activeTab, setActiveTab] = useState<'markets' | 'track' | 'results' | 'profile'>('markets')
   const [marketType, setMarketType] = useState<'app' | 'chain'>('chain')
   const [mounted, setMounted] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null)
@@ -539,8 +539,8 @@ export default function Home() {
           </section>
         ) : (
           <section className="px-6 py-6">
-            {activeTab === 'positions' && (
-              <PositionsTab
+            {activeTab === 'track' && (
+              <TrackTab
                 address={address}
                 isConnected={isConnected}
                 marketAddress={MARKET_ADDRESS}
@@ -606,7 +606,7 @@ export default function Home() {
         <div className="mx-auto grid h-16 max-w-md grid-cols-4">
           {[
             { key: 'markets', label: 'Markets', icon: '◫' },
-            { key: 'positions', label: 'Positions', icon: '◎' },
+            { key: 'track', label: 'Track', icon: '◎' },
             { key: 'results', label: 'Results', icon: '◉' },
             { key: 'profile', label: 'Profile', icon: '◌' },
           ].map((item) => (
@@ -648,7 +648,7 @@ type Position = {
   betType?: string // V3: "top1" | "top5" | "top10"
 }
 
-function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, onExplore }: {
+function TrackTab({ address, isConnected, marketAddress, weekId, onConnect, onExplore }: {
   address: `0x${string}` | undefined
   isConnected: boolean
   marketAddress: `0x${string}` | undefined
@@ -658,8 +658,8 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
 }) {
   const [positions, setPositions] = useState<Position[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [view, setView] = useState<'live' | 'results'>('live')
 
-  // Use wagmi hooks for on-chain total (correct address from wallet provider)
   const { data: appStakeRaw } = useReadContract({
     address: marketAddress,
     abi: BaseRankMarketV2ABI,
@@ -682,7 +682,6 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
   const totalStake = appStakeUsdc + chainStakeUsdc
   const hasOnChainStake = totalStake > 0
 
-  // Fetch detailed per-app breakdown from API
   useEffect(() => {
     if (!address || !hasOnChainStake) { setLoaded(true); return }
     let cancelled = false
@@ -699,7 +698,6 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
     return () => { cancelled = true }
   }, [address, weekId, hasOnChainStake])
 
-  // Bet type pill styling
   const betTypePill = (bt?: string) => {
     if (!bt) return null
     if (bt === 'top1') return <span className="rounded-full bg-[#0052FF] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">#1 Pick · 10x</span>
@@ -707,20 +705,18 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
     return <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">Top 10 · 1x</span>
   }
 
-  return (
-    <div className="space-y-4">
-      {/* Header card */}
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
-        <p className="text-[10px] uppercase tracking-widest text-zinc-500">Your Total Stake</p>
-        <p className="mt-1 text-3xl font-extrabold tracking-tight font-mono">${totalStake.toFixed(2)} <span className="text-base font-semibold text-zinc-500">USDC</span></p>
-      </div>
+  const trackFooter = (
+    address && <p className="text-[10px] text-zinc-400 font-mono">Connected: {address.slice(0, 6)}...{address.slice(-4)}</p>
+  )
 
+  const liveView = (
+    <>
       {!isConnected ? (
         <div className="grid min-h-[220px] place-items-center rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 text-center">
           <div>
             <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-800 text-xl">◌</div>
-            <p className="text-xl font-bold tracking-tight">Connect to view positions</p>
-            <p className="mt-1 text-sm text-zinc-500">Connect your Smart Wallet to track your predictions.</p>
+            <p className="text-xl font-bold tracking-tight">Connect to view bets</p>
+            <p className="mt-1 text-sm text-zinc-500">Connect your Smart Wallet to track predictions.</p>
             <button className="mt-4 h-11 min-h-11 rounded-full bg-[#0052FF] px-5 text-sm font-bold text-white" onClick={onConnect}>
               Connect Wallet
             </button>
@@ -728,13 +724,13 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
         </div>
       ) : appStakeRaw === undefined && chainStakeRaw === undefined ? (
         <div className="grid min-h-[120px] place-items-center rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 text-center">
-          <p className="text-sm text-zinc-500">Loading positions...</p>
+          <p className="text-sm text-zinc-500">Loading bets…</p>
         </div>
       ) : !hasOnChainStake ? (
         <div className="grid min-h-[220px] place-items-center rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 text-center">
           <div>
             <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-800 text-xl">◎</div>
-            <p className="text-xl font-bold tracking-tight">No active predictions</p>
+            <p className="text-xl font-bold tracking-tight">No active picks</p>
             <p className="mt-1 text-sm text-zinc-500">Place your first prediction to track it here.</p>
             <button className="mt-4 h-11 min-h-11 rounded-full bg-[#0052FF] px-5 text-sm font-bold text-white" onClick={onExplore}>
               Explore Markets
@@ -743,10 +739,9 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
         </div>
       ) : positions.length > 0 ? (
         <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Your Positions ({positions.length})</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Live Bets ({positions.length})</p>
           {positions.map((p, i) => (
             <div key={i} className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4">
-              {/* Squircle icon */}
               {p.iconUrl ? (
                 <Image src={p.iconUrl} alt={p.app} width={48} height={48} className="h-12 w-12 rounded-2xl" unoptimized />
               ) : (
@@ -754,65 +749,70 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
                   {p.app.charAt(0)}
                 </span>
               )}
-              {/* Left: name + meta */}
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold truncate">{p.app}</p>
                 <p className="text-[11px] text-zinc-500">
                   {p.market === 'App' ? 'App Market' : 'Chain Market'}
                   {p.rank ? ` · Rank #${p.rank}` : ''}
                 </p>
-                <div className="flex items-center gap-1.5 mt-1">
+                <div className="mt-1 flex items-center gap-1.5">
                   <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">
                     {p.market === 'App' ? 'App Market' : 'Chain Market'}
                   </span>
                   {betTypePill(p.betType)}
                 </div>
               </div>
-              {/* Right: money hero */}
               <div className="text-right shrink-0 pl-2">
                 <p className="text-lg font-bold font-mono">${Number(p.amount).toFixed(2)}</p>
                 <p className="text-[10px] text-zinc-500">USDC</p>
               </div>
             </div>
           ))}
-          <p className="text-[11px] text-zinc-500">Positions lock when the epoch ends. Claim winnings after resolution.</p>
+          <p className="text-[11px] text-zinc-500">Bets lock when the epoch ends. Claim winnings after resolution.</p>
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Your Positions</p>
-          {appStakeUsdc > 0 && (
-            <div className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4">
-              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#0052FF]/10 text-sm font-bold text-[#0052FF]">A</span>
-              <div className="flex-1">
-                <p className="text-sm font-semibold">App Market</p>
-                <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">App Market</span>
-              </div>
-              <div className="text-right">
-                <p className="text-lg font-bold font-mono">${appStakeUsdc.toFixed(2)}</p>
-                <p className="text-[10px] text-zinc-500">USDC</p>
-              </div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Live Bets</p>
+          {[appStakeUsdc, chainStakeUsdc].some((v) => v > 0) && (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4 text-sm text-zinc-500">
+              Bets detected on-chain, but no breakdown returned yet.
             </div>
           )}
-          {chainStakeUsdc > 0 && (
-            <div className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4">
-              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#0052FF]/10 text-sm font-bold text-[#0052FF]">C</span>
-              <div className="flex-1">
-                <p className="text-sm font-semibold">Chain Market</p>
-                <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">Chain Market</span>
-              </div>
-              <div className="text-right">
-                <p className="text-lg font-bold font-mono">${chainStakeUsdc.toFixed(2)}</p>
-                <p className="text-[10px] text-zinc-500">USDC</p>
-              </div>
-            </div>
-          )}
-          <p className="text-[11px] text-zinc-500">Positions lock when the epoch ends. Claim winnings after resolution.</p>
         </div>
       )}
+    </>
+  )
 
-      {address && (
-        <p className="text-[10px] text-zinc-400 font-mono">Connected: {address.slice(0, 6)}...{address.slice(-4)}</p>
-      )}
+  const resultsView = (
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 text-center">
+      <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-800 text-xl">★</div>
+      <p className="text-lg font-semibold">Results coming soon</p>
+      <p className="mt-1 text-sm text-zinc-500">Completed bets + claim flow unlock once V3 is live.</p>
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
+        <p className="text-[10px] uppercase tracking-widest text-zinc-500">Your Total Stake</p>
+        <p className="mt-1 text-3xl font-extrabold tracking-tight font-mono">${totalStake.toFixed(2)} <span className="text-base font-semibold text-zinc-500">USDC</span></p>
+      </div>
+
+      <div className="flex items-center gap-1 rounded-full bg-zinc-900/60 p-1 text-[11px] font-semibold uppercase tracking-widest">
+        {(['live', 'results'] as const).map((key) => (
+          <button
+            key={key}
+            onClick={() => setView(key)}
+            className={`${view === key ? 'bg-white text-black' : 'text-zinc-500'} rounded-full px-4 py-1 transition`}
+          >
+            {key === 'live' ? 'Live' : 'Results'}
+          </button>
+        ))}
+      </div>
+
+      {view === 'live' ? liveView : resultsView}
+
+      {trackFooter}
     </div>
   )
 }
