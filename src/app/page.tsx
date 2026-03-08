@@ -708,7 +708,7 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
   }
 
   return (
-    <div className="space-y-4 px-6">
+    <div className="space-y-4">
       {/* Header card */}
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
         <p className="text-[10px] uppercase tracking-widest text-zinc-500">Your Total Stake</p>
