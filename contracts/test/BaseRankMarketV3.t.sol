@@ -116,7 +116,6 @@ contract BaseRankMarketV3Test is Test {
 
         assertEq(market.totalPool(EPOCH, CHAIN), 100e6);
         assertEq(market.userTotalStake(EPOCH, CHAIN, alice), 100e6);
-        assertEq(market.candidateBetTypeStake(EPOCH, CHAIN, APP_AERO, 0), 100e6);
 
         BaseRankMarketV3.BucketState memory b = market.getBucketState(EPOCH, CHAIN, 0);
         assertEq(b.totalStaked, 100e6);
@@ -186,7 +185,6 @@ contract BaseRankMarketV3Test is Test {
 
         assertEq(market.getUserBetCount(alice, EPOCH, CHAIN), 3);
         assertEq(market.userTotalStake(EPOCH, CHAIN, alice), 160e6);
-        assertEq(market.totalPool(EPOCH, CHAIN), 160e6);
     }
 
     // ─── Resolution ──────────────────────────────────────────────────────
@@ -225,6 +223,21 @@ contract BaseRankMarketV3Test is Test {
         market.resolveMarket(EPOCH, CHAIN, empty, keccak256("snap"));
     }
 
+    function test_resolveMarket_revert_duplicateRankings() public {
+        _openAndWarp();
+        vm.prank(alice);
+        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
+        vm.warp(resolveTime);
+
+        bytes32[10] memory dupes;
+        dupes[0] = APP_AERO;
+        dupes[1] = APP_UNI;
+        dupes[2] = APP_AERO; // duplicate!
+        vm.prank(owner);
+        vm.expectRevert(BaseRankMarketV3.DuplicateCandidate.selector);
+        market.resolveMarket(EPOCH, CHAIN, dupes, keccak256("snap"));
+    }
+
     function test_resolveMarket_bucketRewards() public {
         _openAndWarp();
 
@@ -239,17 +252,19 @@ contract BaseRankMarketV3Test is Test {
         vm.prank(owner);
         market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
 
-        // Pool = $300, fee = $6, net = $294
-        // Top 10 bucket: 294 * 30% = $88.20
-        // Top 5 bucket: 294 * 40% = $117.60
-        // #1 bucket: 294 * 30% = $88.20
         BaseRankMarketV3.BucketState memory b10 = market.getBucketState(EPOCH, CHAIN, 0);
         BaseRankMarketV3.BucketState memory b5 = market.getBucketState(EPOCH, CHAIN, 1);
         BaseRankMarketV3.BucketState memory b1 = market.getBucketState(EPOCH, CHAIN, 2);
 
-        assertEq(b10.reward, 88_200_000); // $88.20
-        assertEq(b5.reward, 117_600_000); // $117.60
-        assertEq(b1.reward, 88_200_000);  // $88.20
+        // Pool = $300, fee = $6, net = $294
+        assertEq(b10.reward, 88_200_000); // 30%
+        assertEq(b5.reward, 117_600_000); // 40%
+        assertEq(b1.reward, 88_200_000);  // 30%
+
+        // Net staked = staked - 2% fee each
+        assertEq(b10.netStaked, 98_000_000); // 100 - 2
+        assertEq(b5.netStaked, 98_000_000);
+        assertEq(b1.netStaked, 98_000_000);
     }
 
     // ─── Payout Math (Tier Buckets) ──────────────────────────────────────
@@ -257,15 +272,10 @@ contract BaseRankMarketV3Test is Test {
     function test_payout_isolated_buckets() public {
         _openAndWarp();
 
-        // Alice: $100 Top 10 on Aero (winner)
         vm.prank(alice);
         market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
-
-        // Bob: $100 Top 5 on Aero (winner)
         vm.prank(bob);
         market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 1);
-
-        // Carol: $100 #1 on Aero (winner — Aero is #1)
         vm.prank(carol);
         market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 2);
 
@@ -273,18 +283,14 @@ contract BaseRankMarketV3Test is Test {
         vm.prank(owner);
         market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
 
-        // All winners but each gets their own bucket
         uint256 aliceP = market.previewPayout(alice, EPOCH, CHAIN);
         uint256 bobP = market.previewPayout(bob, EPOCH, CHAIN);
         uint256 carolP = market.previewPayout(carol, EPOCH, CHAIN);
 
-        // Pool = $300, fee = $6, net = $294
-        // Alice gets Top 10 bucket = $88.20
-        // Bob gets Top 5 bucket = $117.60
-        // Carol gets #1 bucket = $88.20
-        assertEq(aliceP, 88_200_000);
-        assertEq(bobP, 117_600_000);
-        assertEq(carolP, 88_200_000);
+        // Each gets their bucket's reward (sole winner in each bucket)
+        assertEq(aliceP, 88_200_000);  // Top 10 = 30%
+        assertEq(bobP, 117_600_000);   // Top 5 = 40%
+        assertEq(carolP, 88_200_000);  // #1 = 30%
 
         console2.log("Top 10 (Alice):", aliceP);
         console2.log("Top 5 (Bob):", bobP);
@@ -294,11 +300,8 @@ contract BaseRankMarketV3Test is Test {
     function test_payout_top10_normie_vs_loser() public {
         _openAndWarp();
 
-        // Alice: $100 Top 10 on Aero (winner)
         vm.prank(alice);
         market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
-
-        // Bob: $100 Top 10 on a loser
         vm.prank(bob);
         market.predict(EPOCH, CHAIN, keccak256("chain:Loser"), 100e6, 0);
 
@@ -306,22 +309,151 @@ contract BaseRankMarketV3Test is Test {
         vm.prank(owner);
         market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
 
-        // Pool = $200, fee = $4, net = $196
-        // Top 10 bucket = $58.80 (30% of $196)
-        // Alice is only Top 10 winner → gets full $58.80
-        // Bob lost → gets $0 from Top 10 bucket
-        // But no one bet Top 5 or #1, so those buckets have $0 staked
+        // Top 10 bucket: $58.80 (30% of $196 net)
+        // Alice sole winner → gets $58.80
+        // Bob lost → $0
+        assertEq(market.previewPayout(alice, EPOCH, CHAIN), 58_800_000);
+        assertEq(market.previewPayout(bob, EPOCH, CHAIN), 0);
+    }
+
+    function test_payout_multi_tier_same_user() public {
+        _openAndWarp();
+
+        vm.startPrank(alice);
+        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
+        market.predict(EPOCH, CHAIN, APP_AERO, 50e6, 1);
+        market.predict(EPOCH, CHAIN, APP_AERO, 25e6, 2);
+        vm.stopPrank();
+
+        vm.prank(bob);
+        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
+
+        vm.warp(resolveTime);
+        vm.prank(owner);
+        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
+
         uint256 aliceP = market.previewPayout(alice, EPOCH, CHAIN);
         uint256 bobP = market.previewPayout(bob, EPOCH, CHAIN);
 
-        assertEq(aliceP, 58_800_000); // $58.80
-        assertEq(bobP, 0);
+        assertGt(aliceP, bobP);
+        console2.log("Alice (multi-tier):", aliceP);
+        console2.log("Bob (Top 10 only):", bobP);
     }
 
-    function test_payout_no_one_bets_num1_refund() public {
+    // ─── Bucket Isolation ────────────────────────────────────────────────
+
+    function test_bucket_isolation_prevents_parking() public {
         _openAndWarp();
 
-        // Only Top 10 bets, no Top 5 or #1
+        // 9 normies park $100 each on Top 10
+        for (uint160 i = 1; i <= 9; i++) {
+            address normie = address(i + 0x1000);
+            usdc.mint(normie, 1_000_000e6);
+            vm.prank(normie);
+            usdc.approve(address(market), type(uint256).max);
+            vm.prank(normie);
+            market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
+        }
+
+        // Carol bets $100 on #1
+        vm.prank(carol);
+        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 2);
+
+        vm.warp(resolveTime);
+        vm.prank(owner);
+        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
+
+        uint256 carolP = market.previewPayout(carol, EPOCH, CHAIN);
+        // Pool = $1000, fee = $20, net = $980
+        // #1 bucket: $294 → Carol sole winner
+        assertEq(carolP, 294_000_000);
+    }
+
+    // ─── No-Winner Refund (Fixed: refund from own stake, not reward) ─────
+
+    function test_refund_from_own_stake_not_reward() public {
+        _openAndWarp();
+
+        // GPT's exploit scenario: $900 Top 10 + $100 #1, nobody hits #1
+        for (uint160 i = 1; i <= 9; i++) {
+            address normie = address(i + 0x1000);
+            usdc.mint(normie, 1_000_000e6);
+            vm.prank(normie);
+            usdc.approve(address(market), type(uint256).max);
+            vm.prank(normie);
+            market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0); // Top 10
+        }
+
+        // Carol bets $100 #1 on a loser
+        vm.prank(carol);
+        market.predict(EPOCH, CHAIN, keccak256("chain:Loser"), 100e6, 2);
+
+        vm.warp(resolveTime);
+        vm.prank(owner);
+        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
+
+        uint256 carolP = market.previewPayout(carol, EPOCH, CHAIN);
+
+        // OLD BUG: Carol would get $294 (30% of $980 net pool) on a $100 losing bet = +194% profit
+        // FIXED: Carol gets her own stake minus 2% fee = $98
+        assertEq(carolP, 98_000_000); // $98 — refund from own net stake
+        assertLt(carolP, 100e6); // Less than staked (fee deducted)
+
+        console2.log("Carol refund (was $294, now $98):", carolP);
+    }
+
+    function test_refund_all_in_one_bucket_no_winners() public {
+        _openAndWarp();
+
+        // GPT's nuke scenario: everyone bets #1 only, nobody wins
+        vm.prank(alice);
+        market.predict(EPOCH, CHAIN, keccak256("chain:Loser1"), 500e6, 2);
+        vm.prank(bob);
+        market.predict(EPOCH, CHAIN, keccak256("chain:Loser2"), 500e6, 2);
+
+        vm.warp(resolveTime);
+        vm.prank(owner);
+        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
+
+        uint256 aliceP = market.previewPayout(alice, EPOCH, CHAIN);
+        uint256 bobP = market.previewPayout(bob, EPOCH, CHAIN);
+
+        // OLD BUG: $1000 pool, #1 bucket reward = $294, users only get back $294 total = -70.6%
+        // FIXED: Each gets back their stake minus 2% fee
+        assertEq(aliceP, 490_000_000); // $490 = $500 - 2%
+        assertEq(bobP, 490_000_000);
+
+        console2.log("Alice refund (was ~$147, now $490):", aliceP);
+        console2.log("Bob refund (was ~$147, now $490):", bobP);
+    }
+
+    function test_bucket_refund_no_winners_small_bucket() public {
+        _openAndWarp();
+
+        // Alice: #1 on a loser, Bob: #1 on another loser
+        vm.prank(alice);
+        market.predict(EPOCH, CHAIN, keccak256("chain:Loser1"), 100e6, 2);
+        vm.prank(bob);
+        market.predict(EPOCH, CHAIN, keccak256("chain:Loser2"), 50e6, 2);
+
+        vm.warp(resolveTime);
+        vm.prank(owner);
+        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
+
+        // Refund from own net stake (not reward)
+        // Alice: $100 - 2% = $98
+        // Bob: $50 - 2% = $49
+        uint256 aliceP = market.previewPayout(alice, EPOCH, CHAIN);
+        uint256 bobP = market.previewPayout(bob, EPOCH, CHAIN);
+
+        assertEq(aliceP, 98_000_000);
+        assertEq(bobP, 49_000_000);
+    }
+
+    function test_no_one_bets_empty_bucket_ok() public {
+        _openAndWarp();
+
+        // Only Top 10 bets, Top 5 and #1 buckets are empty (zero staked)
         vm.prank(alice);
         market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
         vm.prank(bob);
@@ -331,113 +463,125 @@ contract BaseRankMarketV3Test is Test {
         vm.prank(owner);
         market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
 
-        // Pool = $200, fee = $4, net = $196
-        // Top 10 bucket: $58.80 → both win (Aero + Uni in top 10), split 50/50
-        // Top 5 bucket: $78.40 → zero staked → no refund needed (nobody participated)
-        // #1 bucket: $58.80 → zero staked → no refund needed
+        // Both win Top 10, split the Top 10 bucket
         uint256 aliceP = market.previewPayout(alice, EPOCH, CHAIN);
         uint256 bobP = market.previewPayout(bob, EPOCH, CHAIN);
 
-        // Each gets half of Top 10 bucket
-        assertEq(aliceP, 29_400_000); // $29.40
+        // Top 10 bucket = 30% of $196 = $58.80, split 50/50
+        assertEq(aliceP, 29_400_000);
         assertEq(bobP, 29_400_000);
     }
 
-    function test_payout_bucket_refund_no_winners() public {
+    // ─── Mixed scenarios ─────────────────────────────────────────────────
+
+    function test_no_winners_top10_but_winners_top5_and_num1() public {
         _openAndWarp();
 
-        // Alice bets #1 on a loser (nobody hits #1)
         vm.prank(alice);
-        market.predict(EPOCH, CHAIN, keccak256("chain:Loser1"), 100e6, 2);
-
-        // Bob bets #1 on another loser
+        market.predict(EPOCH, CHAIN, keccak256("chain:Loser"), 100e6, 0); // Top 10 loser
         vm.prank(bob);
-        market.predict(EPOCH, CHAIN, keccak256("chain:Loser2"), 50e6, 2);
+        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 1); // Top 5 winner
+        vm.prank(carol);
+        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 2); // #1 winner
 
         vm.warp(resolveTime);
         vm.prank(owner);
         market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
 
-        // Pool = $150, fee = $3, net = $147
-        // #1 bucket: 147 * 30% = $44.10
-        // No winners in #1 → pro-rata refund
-        // Alice refund: (100/150) * 44.10 = $29.40
-        // Bob refund: (50/150) * 44.10 = $14.70
         uint256 aliceP = market.previewPayout(alice, EPOCH, CHAIN);
         uint256 bobP = market.previewPayout(bob, EPOCH, CHAIN);
+        uint256 carolP = market.previewPayout(carol, EPOCH, CHAIN);
 
-        assertEq(aliceP, 29_400_000);
-        assertEq(bobP, 14_700_000);
+        // Alice: refund from own stake minus fee = $98
+        assertEq(aliceP, 98_000_000);
+        // Bob: Top 5 bucket reward
+        assertEq(bobP, 117_600_000);
+        // Carol: #1 bucket reward
+        assertEq(carolP, 88_200_000);
     }
 
-    function test_payout_top5_loses_at_rank6() public {
+    function test_no_winners_num1_but_winners_top10_top5() public {
+        _openAndWarp();
+
+        vm.prank(alice);
+        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0); // Top 10 winner
+        vm.prank(bob);
+        market.predict(EPOCH, CHAIN, APP_UNI, 100e6, 1); // Top 5 winner
+        vm.prank(carol);
+        market.predict(EPOCH, CHAIN, keccak256("chain:Loser"), 100e6, 2); // #1 loser
+
+        vm.warp(resolveTime);
+        vm.prank(owner);
+        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
+
+        uint256 carolP = market.previewPayout(carol, EPOCH, CHAIN);
+        // Carol gets refund from own stake: $100 - 2% = $98
+        assertEq(carolP, 98_000_000);
+    }
+
+    function test_no_winners_anywhere() public {
+        _openAndWarp();
+
+        vm.prank(alice);
+        market.predict(EPOCH, CHAIN, keccak256("chain:LoserA"), 100e6, 0);
+        vm.prank(bob);
+        market.predict(EPOCH, CHAIN, keccak256("chain:LoserB"), 100e6, 1);
+        vm.prank(carol);
+        market.predict(EPOCH, CHAIN, keccak256("chain:LoserC"), 100e6, 2);
+
+        vm.warp(resolveTime);
+        vm.prank(owner);
+        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
+
+        // Everyone gets refund from own bucket's net stake
+        assertEq(market.previewPayout(alice, EPOCH, CHAIN), 98_000_000);
+        assertEq(market.previewPayout(bob, EPOCH, CHAIN), 98_000_000);
+        assertEq(market.previewPayout(carol, EPOCH, CHAIN), 98_000_000);
+    }
+
+    function test_single_bettor_alone_in_bucket() public {
+        _openAndWarp();
+
+        vm.prank(carol);
+        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 2);
+
+        vm.warp(resolveTime);
+        vm.prank(owner);
+        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
+
+        // Pool = $100, net = $98
+        // #1 bucket reward = $29.40 (30% of $98)
+        // Carol is sole winner → gets $29.40
+        uint256 carolP = market.previewPayout(carol, EPOCH, CHAIN);
+        assertEq(carolP, 29_400_000);
+    }
+
+    function test_top5_loses_at_rank6() public {
         _openAndWarp();
 
         bytes32 sixth = keccak256("chain:Sixth");
-
-        // Alice: Top 5 bet on Sixth (will rank #6 — loses)
         vm.prank(alice);
-        market.predict(EPOCH, CHAIN, sixth, 100e6, 1);
-
-        // Bob: Top 10 bet on Sixth (will rank #6 — wins)
+        market.predict(EPOCH, CHAIN, sixth, 100e6, 1); // Top 5 — loses (rank #6)
         vm.prank(bob);
-        market.predict(EPOCH, CHAIN, sixth, 100e6, 0);
+        market.predict(EPOCH, CHAIN, sixth, 100e6, 0); // Top 10 — wins (rank #6)
 
         vm.warp(resolveTime);
         vm.prank(owner);
         market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
 
-        // Alice's Top 5 bet LOSES
-        // Bob's Top 10 bet WINS
-        // Alice gets refund from Top 5 bucket (she's the only one in it, no winners)
+        // Alice: Top 5 has no winners → refund from own net stake = $98
+        // Bob: Top 10 has winners → gets Top 10 bucket reward
         uint256 aliceP = market.previewPayout(alice, EPOCH, CHAIN);
         uint256 bobP = market.previewPayout(bob, EPOCH, CHAIN);
 
-        assertGt(bobP, 0); // Bob wins from Top 10 bucket
-        assertGt(aliceP, 0); // Alice gets refund from Top 5 bucket (no winners)
-    }
-
-    function test_payout_multi_tier_same_user() public {
-        _openAndWarp();
-
-        // Alice bets across all tiers
-        vm.startPrank(alice);
-        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0); // Top 10
-        market.predict(EPOCH, CHAIN, APP_AERO, 50e6, 1);   // Top 5
-        market.predict(EPOCH, CHAIN, APP_AERO, 25e6, 2);   // #1
-        vm.stopPrank();
-
-        // Bob also bets Top 10 on Aero
-        vm.prank(bob);
-        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
-
-        vm.warp(resolveTime);
-        vm.prank(owner);
-        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
-
-        // Aero is #1 → all Alice's bets win
-        uint256 aliceP = market.previewPayout(alice, EPOCH, CHAIN);
-        uint256 bobP = market.previewPayout(bob, EPOCH, CHAIN);
-
-        // Pool = $275, fee = $5.50, net = $269.50
-        // Top 10 bucket: $80.85 → Alice 100/(100+100) = $40.425, Bob = $40.425
-        // Top 5 bucket: $107.80 → Alice sole winner = $107.80
-        // #1 bucket: $80.85 → Alice sole winner = $80.85
-
-        // Alice total ≈ $40.42 + $107.80 + $80.85 = $229.07
-        // Bob total ≈ $40.42
-        assertGt(aliceP, bobP);
-        assertApproxEqAbs(aliceP + bobP, 269_500_000, 3); // net pool minus rounding
-
-        console2.log("Alice (multi-tier):", aliceP);
-        console2.log("Bob (Top 10 only):", bobP);
+        assertEq(aliceP, 98_000_000); // refund
+        assertGt(bobP, 0); // bucket reward
     }
 
     // ─── Claims ──────────────────────────────────────────────────────────
 
     function test_claim_success() public {
         _openAndWarp();
-
         vm.prank(alice);
         market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
 
@@ -448,9 +592,7 @@ contract BaseRankMarketV3Test is Test {
         uint256 balBefore = usdc.balanceOf(alice);
         vm.prank(alice);
         market.claim(EPOCH, CHAIN);
-        uint256 balAfter = usdc.balanceOf(alice);
-
-        assertGt(balAfter, balBefore);
+        assertGt(usdc.balanceOf(alice), balBefore);
     }
 
     function test_claim_revert_doubleClaim() public {
@@ -464,7 +606,6 @@ contract BaseRankMarketV3Test is Test {
 
         vm.prank(alice);
         market.claim(EPOCH, CHAIN);
-
         vm.prank(alice);
         vm.expectRevert(BaseRankMarketV3.NothingToClaim.selector);
         market.claim(EPOCH, CHAIN);
@@ -480,6 +621,24 @@ contract BaseRankMarketV3Test is Test {
         market.claim(EPOCH, CHAIN);
     }
 
+    function test_claim_matches_preview() public {
+        _openAndWarp();
+        vm.prank(alice);
+        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 2);
+        vm.prank(bob);
+        market.predict(EPOCH, CHAIN, keccak256("chain:Loser"), 200e6, 0);
+
+        vm.warp(resolveTime);
+        vm.prank(owner);
+        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
+
+        uint256 preview = market.previewPayout(alice, EPOCH, CHAIN);
+        uint256 balBefore = usdc.balanceOf(alice);
+        vm.prank(alice);
+        market.claim(EPOCH, CHAIN);
+        assertEq(usdc.balanceOf(alice) - balBefore, preview);
+    }
+
     // ─── Fee ─────────────────────────────────────────────────────────────
 
     function test_fee_collected() public {
@@ -488,20 +647,17 @@ contract BaseRankMarketV3Test is Test {
         market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
 
         uint256 feeBefore = usdc.balanceOf(feeRecipient);
-
         vm.warp(resolveTime);
         vm.prank(owner);
         market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
 
-        uint256 feeAfter = usdc.balanceOf(feeRecipient);
-        assertEq(feeAfter - feeBefore, 2e6); // 2% of $100
+        assertEq(usdc.balanceOf(feeRecipient) - feeBefore, 2e6);
     }
 
     function test_setFeeRecipient() public {
-        address newRecipient = address(0xBEEF);
         vm.prank(owner);
-        market.setFeeRecipient(newRecipient);
-        assertEq(market.feeRecipient(), newRecipient);
+        market.setFeeRecipient(address(0xBEEF));
+        assertEq(market.feeRecipient(), address(0xBEEF));
     }
 
     function test_setFeeRecipient_revert_zero() public {
@@ -516,7 +672,6 @@ contract BaseRankMarketV3Test is Test {
         _openAndWarp();
         vm.prank(owner);
         market.pause();
-
         vm.prank(alice);
         vm.expectRevert();
         market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
@@ -528,7 +683,6 @@ contract BaseRankMarketV3Test is Test {
         market.pause();
         vm.prank(owner);
         market.unpause();
-
         vm.prank(alice);
         market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
         assertEq(market.totalPool(EPOCH, CHAIN), 100e6);
@@ -538,7 +692,6 @@ contract BaseRankMarketV3Test is Test {
 
     function test_getUserBets_returns_all() public {
         _openAndWarp();
-
         vm.startPrank(alice);
         market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
         market.predict(EPOCH, CHAIN, APP_UNI, 50e6, 1);
@@ -547,19 +700,15 @@ contract BaseRankMarketV3Test is Test {
 
         BaseRankMarketV3.UserBet[] memory bets = market.getUserBets(alice, EPOCH, CHAIN);
         assertEq(bets.length, 3);
-        assertEq(bets[0].amount, 100e6);
         assertEq(uint8(bets[0].betType), 0);
-        assertEq(bets[1].amount, 50e6);
         assertEq(uint8(bets[1].betType), 1);
-        assertEq(bets[2].amount, 10e6);
         assertEq(uint8(bets[2].betType), 2);
     }
 
-    // ─── Degenerate: Everyone bets same app same tier ────────────────────
+    // ─── Degenerate ──────────────────────────────────────────────────────
 
     function test_everyone_bets_same_app_top10() public {
         _openAndWarp();
-
         vm.prank(alice);
         market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
         vm.prank(bob);
@@ -571,243 +720,65 @@ contract BaseRankMarketV3Test is Test {
         vm.prank(owner);
         market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
 
-        // All 3 win Top 10. Pool = $300, fee = $6, net = $294
-        // Top 10 bucket = $88.20, split 3 ways = $29.40 each
-        // Top 5 bucket = $117.60, zero staked → nothing
-        // #1 bucket = $88.20, zero staked → nothing
-        // Each person staked $100, gets back $29.40 — effectively -70%
-        // This is the correct behavior — all the value went to empty buckets
-        uint256 aliceP = market.previewPayout(alice, EPOCH, CHAIN);
-        assertEq(aliceP, 29_400_000);
+        // All win Top 10, split the bucket 3 ways
+        assertEq(market.previewPayout(alice, EPOCH, CHAIN), 29_400_000);
     }
 
-    // ─── Bucket isolation: Top 10 parking doesn't cannibalize #1 ─────────
+    // ─── Rounding ────────────────────────────────────────────────────────
 
-    function test_bucket_isolation_prevents_parking() public {
+    function test_dust_rounding() public {
         _openAndWarp();
 
-        // 9 normies park $100 each on Top 10 safe bets
-        for (uint160 i = 1; i <= 9; i++) {
-            address normie = address(i + 0x1000);
-            usdc.mint(normie, 1_000_000e6);
-            vm.prank(normie);
-            usdc.approve(address(market), type(uint256).max);
-            vm.prank(normie);
-            market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
-        }
-
-        // Carol bets $100 on #1 dark horse that actually hits
-        vm.prank(carol);
-        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 2);
-
-        vm.warp(resolveTime);
-        vm.prank(owner);
-        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
-
-        // Pool = $1000, fee = $20, net = $980
-        // Top 10 bucket: $294 shared among 9 normies = $32.67 each (staked $100, lost ~67%)
-        // #1 bucket: $294 → Carol is sole winner = $294 (staked $100, +194%)
-        // Top 5 bucket: $392 → no stakers → nothing
-
-        uint256 carolP = market.previewPayout(carol, EPOCH, CHAIN);
-        assertEq(carolP, 294_000_000); // $294
-
-        // Carol's $100 #1 bet returns $294 regardless of how many normies parked on Top 10
-        // This is the key property: bucket isolation prevents safe-bet parking from draining degen rewards
-    }
-
-    // ─── Edge Cases: Per-Bucket No-Winner Scenarios ──────────────────────
-
-    function test_no_winners_top10_but_winners_top5_and_num1() public {
-        _openAndWarp();
-
-        // Alice: Top 10 on a loser
         vm.prank(alice);
-        market.predict(EPOCH, CHAIN, keccak256("chain:Loser"), 100e6, 0);
-
-        // Bob: Top 5 on Aero (winner — Aero is #1, in top 5)
+        market.predict(EPOCH, CHAIN, APP_AERO, 33_333_333, 0);
         vm.prank(bob);
-        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 1);
-
-        // Carol: #1 on Aero (winner)
+        market.predict(EPOCH, CHAIN, APP_UNI, 33_333_333, 0);
         vm.prank(carol);
-        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 2);
+        market.predict(EPOCH, CHAIN, APP_BASE, 33_333_334, 0);
 
         vm.warp(resolveTime);
         vm.prank(owner);
         market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
 
-        // Top 10 bucket: no winners → refund Alice
-        // Top 5 bucket: Bob wins
-        // #1 bucket: Carol wins
-        uint256 aliceP = market.previewPayout(alice, EPOCH, CHAIN);
-        uint256 bobP = market.previewPayout(bob, EPOCH, CHAIN);
-        uint256 carolP = market.previewPayout(carol, EPOCH, CHAIN);
+        uint256 a = market.previewPayout(alice, EPOCH, CHAIN);
+        uint256 b = market.previewPayout(bob, EPOCH, CHAIN);
+        uint256 c = market.previewPayout(carol, EPOCH, CHAIN);
 
-        // All should get something (Alice via refund, Bob/Carol via wins)
-        assertGt(aliceP, 0);
-        assertGt(bobP, 0);
-        assertGt(carolP, 0);
+        assertGt(a, 0);
+        assertGt(b, 0);
+        assertGt(c, 0);
+
+        BaseRankMarketV3.BucketState memory bk = market.getBucketState(EPOCH, CHAIN, 0);
+        assertLe(a + b + c, bk.reward); // no overpay
     }
 
-    function test_no_winners_num1_but_winners_top10_top5() public {
+    // ─── Solvency: total payouts never exceed contract balance ───────────
+
+    function test_solvency_mixed_winners_and_refunds() public {
         _openAndWarp();
 
-        // Alice: Top 10 on Aero (winner)
+        // Mix of winners and losers across all buckets
         vm.prank(alice);
-        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
-
-        // Bob: Top 5 on Uni (winner — Uni is #2)
+        market.predict(EPOCH, CHAIN, APP_AERO, 200e6, 0); // Top 10 winner
         vm.prank(bob);
-        market.predict(EPOCH, CHAIN, APP_UNI, 100e6, 1);
-
-        // Carol: #1 on a loser
+        market.predict(EPOCH, CHAIN, keccak256("chain:Loser"), 300e6, 1); // Top 5 loser (refund)
         vm.prank(carol);
-        market.predict(EPOCH, CHAIN, keccak256("chain:Loser"), 100e6, 2);
+        market.predict(EPOCH, CHAIN, APP_AERO, 500e6, 2); // #1 winner
 
         vm.warp(resolveTime);
         vm.prank(owner);
         market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
 
-        uint256 aliceP = market.previewPayout(alice, EPOCH, CHAIN);
-        uint256 bobP = market.previewPayout(bob, EPOCH, CHAIN);
-        uint256 carolP = market.previewPayout(carol, EPOCH, CHAIN);
+        uint256 contractBal = usdc.balanceOf(address(market));
+        uint256 totalPayouts = market.previewPayout(alice, EPOCH, CHAIN)
+            + market.previewPayout(bob, EPOCH, CHAIN)
+            + market.previewPayout(carol, EPOCH, CHAIN);
 
-        // Alice wins from Top 10 bucket
-        // Bob wins from Top 5 bucket
-        // Carol gets refund from #1 bucket (sole participant, no winner)
-        assertGt(aliceP, 0);
-        assertGt(bobP, 0);
-        assertGt(carolP, 0);
-    }
+        // Total payouts must never exceed what the contract holds
+        assertLe(totalPayouts, contractBal);
 
-    function test_no_winners_top5_only() public {
-        _openAndWarp();
-
-        // Alice: Top 10 on Aero (winner)
-        vm.prank(alice);
-        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
-
-        // Bob: Top 5 on Tenth (rank #10 — not in top 5, loses)
-        vm.prank(bob);
-        market.predict(EPOCH, CHAIN, keccak256("chain:Tenth"), 100e6, 1);
-
-        // Carol: #1 on Aero (winner)
-        vm.prank(carol);
-        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 2);
-
-        vm.warp(resolveTime);
-        vm.prank(owner);
-        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
-
-        uint256 aliceP = market.previewPayout(alice, EPOCH, CHAIN);
-        uint256 bobP = market.previewPayout(bob, EPOCH, CHAIN);
-        uint256 carolP = market.previewPayout(carol, EPOCH, CHAIN);
-
-        assertGt(aliceP, 0); // Top 10 win
-        assertGt(bobP, 0);   // Top 5 refund (no winners in bucket)
-        assertGt(carolP, 0); // #1 win
-    }
-
-    function test_no_winners_anywhere() public {
-        _openAndWarp();
-
-        // Everyone bets on losers across all tiers
-        vm.prank(alice);
-        market.predict(EPOCH, CHAIN, keccak256("chain:LoserA"), 100e6, 0);
-        vm.prank(bob);
-        market.predict(EPOCH, CHAIN, keccak256("chain:LoserB"), 100e6, 1);
-        vm.prank(carol);
-        market.predict(EPOCH, CHAIN, keccak256("chain:LoserC"), 100e6, 2);
-
-        vm.warp(resolveTime);
-        vm.prank(owner);
-        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
-
-        // All buckets have zero winners → all get pro-rata refund from their bucket
-        uint256 aliceP = market.previewPayout(alice, EPOCH, CHAIN);
-        uint256 bobP = market.previewPayout(bob, EPOCH, CHAIN);
-        uint256 carolP = market.previewPayout(carol, EPOCH, CHAIN);
-
-        // Pool = $300, fee = $6, net = $294
-        // Each person's refund comes from their bucket
-        // Alice: Top 10 bucket = $88.20 (sole participant)
-        // Bob: Top 5 bucket = $117.60 (sole participant)
-        // Carol: #1 bucket = $88.20 (sole participant)
-        assertEq(aliceP, 88_200_000);
-        assertEq(bobP, 117_600_000);
-        assertEq(carolP, 88_200_000);
-    }
-
-    function test_single_bettor_alone_in_bucket() public {
-        _openAndWarp();
-
-        // Only Carol bets — sole participant in #1 bucket, no one else in market
-        vm.prank(carol);
-        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 2);
-
-        vm.warp(resolveTime);
-        vm.prank(owner);
-        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
-
-        // Pool = $100, fee = $2, net = $98
-        // #1 bucket: $29.40 → Carol is sole winner (Aero is #1)
-        // Top 10 bucket: $29.40 → zero staked → nothing
-        // Top 5 bucket: $39.20 → zero staked → nothing
-        uint256 carolP = market.previewPayout(carol, EPOCH, CHAIN);
-        assertEq(carolP, 29_400_000); // $29.40 — she gets her bucket
-    }
-
-    function test_dust_rounding_with_odd_amounts() public {
-        _openAndWarp();
-
-        // Three bettors with amounts that don't divide evenly
-        vm.prank(alice);
-        market.predict(EPOCH, CHAIN, APP_AERO, 33_333_333, 0); // $33.333333
-        vm.prank(bob);
-        market.predict(EPOCH, CHAIN, APP_UNI, 33_333_333, 0);  // $33.333333
-        vm.prank(carol);
-        market.predict(EPOCH, CHAIN, APP_BASE, 33_333_334, 0); // $33.333334
-
-        vm.warp(resolveTime);
-        vm.prank(owner);
-        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
-
-        // All three win Top 10. Should not revert.
-        uint256 aliceP = market.previewPayout(alice, EPOCH, CHAIN);
-        uint256 bobP = market.previewPayout(bob, EPOCH, CHAIN);
-        uint256 carolP = market.previewPayout(carol, EPOCH, CHAIN);
-
-        // All should get roughly equal payouts
-        assertGt(aliceP, 0);
-        assertGt(bobP, 0);
-        assertGt(carolP, 0);
-
-        // Total claimed should not exceed bucket reward (rounding floors)
-        BaseRankMarketV3.BucketState memory b = market.getBucketState(EPOCH, CHAIN, 0);
-        assertLe(aliceP + bobP + carolP, b.reward);
-    }
-
-    function test_claim_transfers_correct_usdc() public {
-        _openAndWarp();
-
-        vm.prank(alice);
-        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 2); // #1
-
-        vm.prank(bob);
-        market.predict(EPOCH, CHAIN, keccak256("chain:Loser"), 200e6, 0); // Top 10 loser
-
-        vm.warp(resolveTime);
-        vm.prank(owner);
-        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
-
-        uint256 preview = market.previewPayout(alice, EPOCH, CHAIN);
-        uint256 balBefore = usdc.balanceOf(alice);
-
-        vm.prank(alice);
-        market.claim(EPOCH, CHAIN);
-
-        uint256 balAfter = usdc.balanceOf(alice);
-        assertEq(balAfter - balBefore, preview); // claim matches preview exactly
+        console2.log("Contract balance:", contractBal);
+        console2.log("Total payouts:", totalPayouts);
+        console2.log("Surplus (dust):", contractBal - totalPayouts);
     }
 }

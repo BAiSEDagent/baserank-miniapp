@@ -12,6 +12,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 ///         Users predict which apps finish Top 10, Top 5, or #1.
 ///         Net pool splits into 3 isolated reward buckets (30/40/30).
 ///         Pari-mutuel runs within each bucket independently.
+///         No-winner buckets refund from their own stake (minus fee), not from reward allocation.
 /// @dev Permissionless candidateIds. Resolution via ranked top-10 array.
 contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -40,8 +41,9 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
 
     struct BucketState {
         uint256 totalStaked;       // total staked into this tier
-        uint256 winningShares;     // winning weighted shares in this tier
-        uint256 reward;            // allocated reward for this tier
+        uint256 winningShares;     // winning shares (= sum of winning stakes in this tier)
+        uint256 reward;            // allocated reward for winners (from global pool split)
+        uint256 netStaked;         // totalStaked minus proportional fee (for no-winner refunds)
     }
 
     // ─── Constants ───────────────────────────────────────────────────────
@@ -60,25 +62,12 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
     IERC20 public immutable STAKE_TOKEN;
     address public feeRecipient;
 
-    /// @notice Market config per epoch per market type
     mapping(uint64 => mapping(uint8 => MarketConfig)) public markets;
-
-    /// @notice Total pool per epoch per market type (all tiers combined)
     mapping(uint64 => mapping(uint8 => uint256)) public totalPool;
-
-    /// @notice Bucket state per epoch per market type per bet type
     mapping(uint64 => mapping(uint8 => mapping(uint8 => BucketState))) public buckets;
-
-    /// @notice Stake per candidate per betType (for resolution math)
     mapping(uint64 => mapping(uint8 => mapping(bytes32 => mapping(uint8 => uint256)))) public candidateBetTypeStake;
-
-    /// @notice User bets array
     mapping(address => mapping(uint64 => mapping(uint8 => UserBet[]))) internal _userBets;
-
-    /// @notice User total stake (quick lookup)
     mapping(uint64 => mapping(uint8 => mapping(address => uint256))) public userTotalStake;
-
-    /// @notice Resolved rankings
     mapping(uint64 => mapping(uint8 => bytes32[10])) public resolvedRankings;
 
     // ─── Events ──────────────────────────────────────────────────────────
@@ -102,6 +91,7 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
     error NothingToClaim();
     error ZeroAddress();
     error InvalidBetType();
+    error DuplicateCandidate();
 
     // ─── Constructor ─────────────────────────────────────────────────────
 
@@ -138,6 +128,7 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
     }
 
     /// @notice Resolve market with ranked top-10. Computes winning shares per bucket.
+    /// @dev Enforces no duplicate candidates in rankings.
     function resolveMarket(
         uint64 epochId,
         uint8 marketType,
@@ -148,9 +139,14 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
         if (m.state != MarketState.OPEN && m.state != MarketState.LOCKED) revert MarketNotOpen();
         if (block.timestamp < m.resolveTime) revert InvalidTime();
 
+        // Validate: at least one non-zero, no duplicates
         bool hasCandidate = false;
         for (uint256 i = 0; i < 10; i++) {
-            if (rankedCandidates[i] != bytes32(0)) { hasCandidate = true; break; }
+            if (rankedCandidates[i] == bytes32(0)) continue;
+            hasCandidate = true;
+            for (uint256 j = i + 1; j < 10; j++) {
+                if (rankedCandidates[i] == rankedCandidates[j]) revert DuplicateCandidate();
+            }
         }
         if (!hasCandidate) revert InvalidRankings();
 
@@ -163,12 +159,22 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
         uint256 fee = (pool * m.feeBps) / 10_000;
         uint256 netPool = pool - fee;
 
-        // Allocate reward buckets
+        // Allocate reward buckets (for winner payouts)
         buckets[epochId][marketType][uint8(BetType.TOP_10)].reward = (netPool * BUCKET_TOP10_BPS) / 10_000;
         buckets[epochId][marketType][uint8(BetType.TOP_5)].reward = (netPool * BUCKET_TOP5_BPS) / 10_000;
         buckets[epochId][marketType][uint8(BetType.TOP_1)].reward = (netPool * BUCKET_NUM1_BPS) / 10_000;
 
-        // Compute winning shares per bucket from candidate stakes
+        // Compute net staked per bucket (for no-winner refunds)
+        // Each bucket's fee is proportional to its share of the total pool
+        for (uint8 bt = 0; bt <= uint8(BetType.TOP_1); bt++) {
+            uint256 bStaked = buckets[epochId][marketType][bt].totalStaked;
+            if (bStaked > 0 && pool > 0) {
+                uint256 bucketFee = (bStaked * m.feeBps) / 10_000;
+                buckets[epochId][marketType][bt].netStaked = bStaked - bucketFee;
+            }
+        }
+
+        // Compute winning shares per bucket
         uint256 top10Wins;
         uint256 top5Wins;
         uint256 top1Wins;
@@ -177,15 +183,10 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
             bytes32 cid = rankedCandidates[rank];
             if (cid == bytes32(0)) continue;
 
-            // All ranked candidates qualify for Top 10
             top10Wins += candidateBetTypeStake[epochId][marketType][cid][uint8(BetType.TOP_10)];
-
-            // Rank 0-4 qualify for Top 5
             if (rank < 5) {
                 top5Wins += candidateBetTypeStake[epochId][marketType][cid][uint8(BetType.TOP_5)];
             }
-
-            // Rank 0 only qualifies for #1
             if (rank == 0) {
                 top1Wins += candidateBetTypeStake[epochId][marketType][cid][uint8(BetType.TOP_1)];
             }
@@ -244,7 +245,9 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
         emit Predicted(epochId, marketType, msg.sender, candidateId, amount, betType);
     }
 
-    /// @notice Claim winnings across all buckets. Per-bucket refund if bucket has no winners.
+    /// @notice Claim winnings or refunds across all buckets.
+    /// @dev Winners get paid from bucket.reward (global pool split).
+    ///      No-winner buckets refund from bucket.netStaked (own stake minus fee).
     function claim(uint64 epochId, uint8 marketType) external nonReentrant {
         MarketConfig storage m = markets[epochId][marketType];
         if (m.state != MarketState.RESOLVED) revert MarketNotResolved();
@@ -264,13 +267,14 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
             BucketState storage bucket = buckets[epochId][marketType][bt];
 
             if (bucket.winningShares > 0) {
-                // Bucket has winners — pay from bucket reward if this bet won
+                // Bucket has winners — pay from bucket.reward if this bet won
                 if (_isWinnerInternal(epochId, marketType, bets[i].candidateId, bets[i].betType)) {
                     totalPayout += (bets[i].amount * bucket.reward) / bucket.winningShares;
                 }
+                // Losers in a winning bucket get nothing — correct behavior
             } else if (bucket.totalStaked > 0) {
-                // Bucket has no winners — pro-rata refund from bucket reward
-                totalPayout += (bets[i].amount * bucket.reward) / bucket.totalStaked;
+                // Bucket has no winners — pro-rata refund from bucket's OWN net stake
+                totalPayout += (bets[i].amount * bucket.netStaked) / bucket.totalStaked;
             }
         }
 
@@ -301,7 +305,6 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
         return buckets[epochId][marketType][betType];
     }
 
-    /// @notice Preview total payout for a user across all buckets
     function previewPayout(address user, uint64 epochId, uint8 marketType) external view returns (uint256 payout) {
         if (markets[epochId][marketType].state != MarketState.RESOLVED) return 0;
 
@@ -318,7 +321,7 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
                     payout += (bets[i].amount * bucket.reward) / bucket.winningShares;
                 }
             } else if (bucket.totalStaked > 0) {
-                payout += (bets[i].amount * bucket.reward) / bucket.totalStaked;
+                payout += (bets[i].amount * bucket.netStaked) / bucket.totalStaked;
             }
         }
     }
