@@ -699,19 +699,26 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
     return () => { cancelled = true }
   }, [address, weekId, hasOnChainStake])
 
+  // Bet type pill styling
+  const betTypePill = (bt?: string) => {
+    if (!bt) return null
+    if (bt === 'top1') return <span className="rounded-full bg-[#0052FF] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">#1 Pick · 10x</span>
+    if (bt === 'top5') return <span className="rounded-full bg-[#0052FF]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#0052FF]">Top 5 · 3x</span>
+    return <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">Top 10 · 1x</span>
+  }
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Your total stake</p>
-          <p className="text-2xl font-extrabold tracking-tight">${totalStake.toFixed(2)} USDC</p>
-        </div>
+    <div className="space-y-4 px-6">
+      {/* Header card */}
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
+        <p className="text-[10px] uppercase tracking-widest text-zinc-500">Your Total Stake</p>
+        <p className="mt-1 text-3xl font-extrabold tracking-tight font-mono">${totalStake.toFixed(2)} <span className="text-base font-semibold text-zinc-500">USDC</span></p>
       </div>
 
       {!isConnected ? (
-        <div className="grid min-h-[220px] place-items-center border border-zinc-200 p-6 text-center dark:border-zinc-800">
+        <div className="grid min-h-[220px] place-items-center rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 text-center">
           <div>
-            <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-100 text-xl dark:bg-zinc-900">◌</div>
+            <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-800 text-xl">◌</div>
             <p className="text-xl font-bold tracking-tight">Connect to view positions</p>
             <p className="mt-1 text-sm text-zinc-500">Connect your Smart Wallet to track your predictions.</p>
             <button className="mt-4 h-11 min-h-11 rounded-full bg-[#0052FF] px-5 text-sm font-bold text-white" onClick={onConnect}>
@@ -720,13 +727,13 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
           </div>
         </div>
       ) : appStakeRaw === undefined && chainStakeRaw === undefined ? (
-        <div className="grid min-h-[120px] place-items-center border border-zinc-200 p-6 text-center dark:border-zinc-800">
+        <div className="grid min-h-[120px] place-items-center rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 text-center">
           <p className="text-sm text-zinc-500">Loading positions...</p>
         </div>
       ) : !hasOnChainStake ? (
-        <div className="grid min-h-[220px] place-items-center border border-zinc-200 p-6 text-center dark:border-zinc-800">
+        <div className="grid min-h-[220px] place-items-center rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 text-center">
           <div>
-            <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-100 text-xl dark:bg-zinc-900">◎</div>
+            <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-800 text-xl">◎</div>
             <p className="text-xl font-bold tracking-tight">No active predictions</p>
             <p className="mt-1 text-sm text-zinc-500">Place your first prediction to track it here.</p>
             <button className="mt-4 h-11 min-h-11 rounded-full bg-[#0052FF] px-5 text-sm font-bold text-white" onClick={onExplore}>
@@ -735,71 +742,76 @@ function PositionsTab({ address, isConnected, marketAddress, weekId, onConnect, 
           </div>
         </div>
       ) : positions.length > 0 ? (
-        <div className="space-y-2">
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Your Positions ({positions.length})</p>
           {positions.map((p, i) => (
-            <div key={i} className="border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="flex items-center gap-3">
-                {p.iconUrl ? (
-                  <Image src={p.iconUrl} alt={p.app} width={36} height={36} className="h-9 w-9 rounded-lg" unoptimized />
-                ) : (
-                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-[#0052FF]/10 text-sm font-bold text-[#0052FF]">
-                    {p.app.charAt(0)}
+            <div key={i} className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4">
+              {/* Squircle icon */}
+              {p.iconUrl ? (
+                <Image src={p.iconUrl} alt={p.app} width={48} height={48} className="h-12 w-12 rounded-2xl" unoptimized />
+              ) : (
+                <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#0052FF]/10 text-base font-bold text-[#0052FF]">
+                  {p.app.charAt(0)}
+                </span>
+              )}
+              {/* Left: name + meta */}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold truncate">{p.app}</p>
+                <p className="text-[11px] text-zinc-500">
+                  {p.market === 'App' ? 'App Market' : 'Chain Market'}
+                  {p.rank ? ` · Rank #${p.rank}` : ''}
+                </p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                    {p.market === 'App' ? 'App Market' : 'Chain Market'}
                   </span>
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold truncate">{p.app}</span>
-                    <span className="ml-2 text-sm font-bold">${Number(p.amount).toFixed(2)}</span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                      {p.market === 'App' ? 'App Market' : 'Chain Market'}
-                    </span>
-                    {p.rank && (
-                      <span className="text-[10px] text-zinc-500">Rank #{p.rank}</span>
-                    )}
-                    {p.betType && (
-                      <span className="rounded bg-[#0052FF]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#0052FF]">
-                        {p.betType === 'top1' ? '#1' : p.betType === 'top5' ? 'Top 5' : 'Top 10'}
-                      </span>
-                    )}
-                  </div>
+                  {betTypePill(p.betType)}
                 </div>
+              </div>
+              {/* Right: money hero */}
+              <div className="text-right shrink-0 pl-2">
+                <p className="text-lg font-bold font-mono">${Number(p.amount).toFixed(2)}</p>
+                <p className="text-[10px] text-zinc-500">USDC</p>
               </div>
             </div>
           ))}
-          <p className="px-1 text-xs text-zinc-500">Positions lock when the epoch ends. Claim winnings after resolution.</p>
+          <p className="text-[11px] text-zinc-500">Positions lock when the epoch ends. Claim winnings after resolution.</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Your Positions</p>
           {appStakeUsdc > 0 && (
-            <div className="border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">A</span>
-                  <span className="text-sm font-semibold">App Market</span>
-                </div>
-                <span className="font-bold">${appStakeUsdc.toFixed(2)}</span>
+            <div className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4">
+              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#0052FF]/10 text-sm font-bold text-[#0052FF]">A</span>
+              <div className="flex-1">
+                <p className="text-sm font-semibold">App Market</p>
+                <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">App Market</span>
+              </div>
+              <div className="text-right">
+                <p className="text-lg font-bold font-mono">${appStakeUsdc.toFixed(2)}</p>
+                <p className="text-[10px] text-zinc-500">USDC</p>
               </div>
             </div>
           )}
           {chainStakeUsdc > 0 && (
-            <div className="border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">C</span>
-                  <span className="text-sm font-semibold">Chain Market</span>
-                </div>
-                <span className="font-bold">${chainStakeUsdc.toFixed(2)}</span>
+            <div className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4">
+              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#0052FF]/10 text-sm font-bold text-[#0052FF]">C</span>
+              <div className="flex-1">
+                <p className="text-sm font-semibold">Chain Market</p>
+                <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">Chain Market</span>
+              </div>
+              <div className="text-right">
+                <p className="text-lg font-bold font-mono">${chainStakeUsdc.toFixed(2)}</p>
+                <p className="text-[10px] text-zinc-500">USDC</p>
               </div>
             </div>
           )}
-          <p className="px-1 text-xs text-zinc-500">Positions lock when the epoch ends. Claim winnings after resolution.</p>
+          <p className="text-[11px] text-zinc-500">Positions lock when the epoch ends. Claim winnings after resolution.</p>
         </div>
       )}
 
       {address && (
-        <p className="px-1 text-[10px] text-zinc-400 font-mono">{address.slice(0, 6)}...{address.slice(-4)}</p>
+        <p className="text-[10px] text-zinc-400 font-mono">Connected: {address.slice(0, 6)}...{address.slice(-4)}</p>
       )}
     </div>
   )
