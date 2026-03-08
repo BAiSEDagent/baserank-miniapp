@@ -752,6 +752,87 @@ contract BaseRankMarketV3Test is Test {
         assertLe(a + b + c, bk.reward); // no overpay
     }
 
+    // ─── Lock Market ──────────────────────────────────────────────────────
+
+    function test_lockMarket_success() public {
+        _openAndWarp();
+        vm.warp(lockTime);
+
+        // Anyone can lock — permissionless
+        vm.prank(alice);
+        market.lockMarket(EPOCH, CHAIN);
+
+        BaseRankMarketV3.MarketConfig memory m = market.marketDetails(EPOCH, CHAIN);
+        assertEq(uint8(m.state), 2); // LOCKED
+    }
+
+    function test_lockMarket_revert_tooEarly() public {
+        _openAndWarp();
+        vm.expectRevert(BaseRankMarketV3.InvalidTime.selector);
+        market.lockMarket(EPOCH, CHAIN);
+    }
+
+    function test_lockMarket_revert_notOpen() public {
+        // Market doesn't exist (INACTIVE)
+        vm.expectRevert(BaseRankMarketV3.MarketNotOpen.selector);
+        market.lockMarket(EPOCH, CHAIN);
+    }
+
+    function test_resolve_works_from_locked() public {
+        _openAndWarp();
+        vm.prank(alice);
+        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
+
+        vm.warp(lockTime);
+        market.lockMarket(EPOCH, CHAIN);
+
+        vm.warp(resolveTime);
+        vm.prank(owner);
+        market.resolveMarket(EPOCH, CHAIN, _defaultRankings(), keccak256("snap"));
+
+        BaseRankMarketV3.MarketConfig memory m = market.marketDetails(EPOCH, CHAIN);
+        assertEq(uint8(m.state), 3); // RESOLVED
+    }
+
+    function test_predict_reverts_when_locked() public {
+        _openAndWarp();
+        vm.warp(lockTime);
+        market.lockMarket(EPOCH, CHAIN);
+
+        vm.prank(alice);
+        vm.expectRevert(BaseRankMarketV3.MarketNotOpen.selector);
+        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
+    }
+
+    // ─── Bet Count Cap ───────────────────────────────────────────────────
+
+    function test_bet_cap_at_50() public {
+        _openAndWarp();
+        vm.startPrank(alice);
+        for (uint256 i = 0; i < 50; i++) {
+            market.predict(EPOCH, CHAIN, keccak256(abi.encodePacked("app:", i)), 10_000, 0);
+        }
+        // 51st bet should revert
+        vm.expectRevert(BaseRankMarketV3.TooManyBets.selector);
+        market.predict(EPOCH, CHAIN, APP_AERO, 10_000, 0);
+        vm.stopPrank();
+    }
+
+    function test_bet_cap_per_user_not_global() public {
+        _openAndWarp();
+        // Alice makes 50 bets
+        vm.startPrank(alice);
+        for (uint256 i = 0; i < 50; i++) {
+            market.predict(EPOCH, CHAIN, keccak256(abi.encodePacked("app:", i)), 10_000, 0);
+        }
+        vm.stopPrank();
+
+        // Bob can still bet — cap is per user
+        vm.prank(bob);
+        market.predict(EPOCH, CHAIN, APP_AERO, 100e6, 0);
+        assertEq(market.getUserBetCount(bob, EPOCH, CHAIN), 1);
+    }
+
     // ─── Solvency: total payouts never exceed contract balance ───────────
 
     function test_solvency_mixed_winners_and_refunds() public {

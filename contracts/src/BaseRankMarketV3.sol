@@ -51,6 +51,7 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
     uint256 public constant MIN_STAKE = 10_000; // $0.01 USDC (6 decimals)
     uint16 public constant MAX_FEE_BPS = 1000;  // 10%
     uint256 public constant RESOLUTION_SIZE = 10;
+    uint256 public constant MAX_BETS_PER_USER = 50;
 
     // Bucket splits (basis points, sum = 10000)
     uint256 public constant BUCKET_TOP10_BPS = 3000; // 30%
@@ -92,6 +93,7 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
     error ZeroAddress();
     error InvalidBetType();
     error DuplicateCandidate();
+    error TooManyBets();
 
     // ─── Constructor ─────────────────────────────────────────────────────
 
@@ -209,6 +211,14 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
         feeRecipient = newRecipient;
     }
 
+    /// @notice Transition market from OPEN → LOCKED. Permissionless — anyone can call once lockTime is reached.
+    function lockMarket(uint64 epochId, uint8 marketType) external {
+        MarketConfig storage m = markets[epochId][marketType];
+        if (m.state != MarketState.OPEN) revert MarketNotOpen();
+        if (block.timestamp < m.lockTime) revert InvalidTime();
+        m.state = MarketState.LOCKED;
+    }
+
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 
@@ -227,6 +237,7 @@ contract BaseRankMarketV3 is Ownable, Pausable, ReentrancyGuard {
         if (candidateId == bytes32(0)) revert InvalidCandidate();
         if (amount < MIN_STAKE) revert StakeTooLow();
         if (betType > uint8(BetType.TOP_1)) revert InvalidBetType();
+        if (_userBets[msg.sender][epochId][marketType].length >= MAX_BETS_PER_USER) revert TooManyBets();
 
         STAKE_TOKEN.safeTransferFrom(msg.sender, address(this), amount);
 
