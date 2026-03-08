@@ -798,16 +798,19 @@ function TrackTab({ address, isConnected, marketAddress, weekId, onConnect, onEx
         <p className="mt-1 text-3xl font-extrabold tracking-tight font-mono">${totalStake.toFixed(2)} <span className="text-base font-semibold text-zinc-500">USDC</span></p>
       </div>
 
-      <div className="flex items-center gap-1 rounded-full bg-zinc-900/60 p-1 text-[11px] font-semibold uppercase tracking-widest">
-        {(['live', 'results'] as const).map((key) => (
-          <button
-            key={key}
-            onClick={() => setView(key)}
-            className={`${view === key ? 'bg-white text-black' : 'text-zinc-500'} rounded-full px-4 py-1 transition`}
-          >
-            {key === 'live' ? 'Live' : 'Results'}
-          </button>
-        ))}
+      <div className="mx-auto flex w-full max-w-xs items-center rounded-full bg-[#0f0f0f] p-1 text-[11px] font-semibold uppercase tracking-widest shadow-[0_0_30px_rgba(0,0,0,0.35)]">
+        {(['live', 'results'] as const).map((key) => {
+          const active = view === key
+          return (
+            <button
+              key={key}
+              onClick={() => setView(key)}
+              className={`${active ? 'bg-white text-black shadow-[0_5px_20px_rgba(255,255,255,0.25)]' : 'text-zinc-500'} flex-1 rounded-full px-4 py-1 text-center transition`}
+            >
+              {key === 'live' ? 'Live' : 'Results'}
+            </button>
+          )
+        })}
       </div>
 
       {view === 'live' ? liveView : resultsView}
