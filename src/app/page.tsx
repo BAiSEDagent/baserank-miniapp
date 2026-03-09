@@ -12,8 +12,8 @@ import {
   useEnsName,
   useEnsAvatar,
   useBalance,
-
   useReadContract,
+  useReadContracts,
 } from 'wagmi'
 import { parseUnits, encodePacked, keccak256, getAddress } from 'viem'
 import { base } from 'wagmi/chains'
@@ -24,9 +24,38 @@ import { requestBaseNotificationPermission } from '@/lib/notifications'
 import { motion } from 'framer-motion'
 import { BaseRankMarketV2ABI } from '@/lib/contracts/BaseRankMarketV2ABI'
 
+const BaseRankMarketV3ABI = [
+  {
+    name: 'previewPayout',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'epochId', type: 'uint64' },
+      { name: 'marketType', type: 'uint8' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'claim',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'epochId', type: 'uint64' },
+      { name: 'marketType', type: 'uint8' },
+    ],
+    outputs: [],
+  },
+] as const
+
+
 const _raw = (process.env.NEXT_PUBLIC_MARKET_ADDRESS ?? '').replace(/^["'\s]+|["'\s]+$/g, '')
 const MARKET_ADDRESS: `0x${string}` | undefined = _raw
   ? (() => { try { return getAddress(_raw) } catch { return undefined } })()
+  : undefined
+const _v3Raw = (process.env.NEXT_PUBLIC_V3_MARKET_ADDRESS ?? '').replace(/^['"\s]+|['"\s]+$/g, '')
+const V3_MARKET_ADDRESS: `0x${string}` | undefined = _v3Raw
+  ? (() => { try { return getAddress(_v3Raw) } catch { return undefined } })()
   : undefined
 const WEEK_ID = BigInt(20260311)
 const TARGET_CHAIN = base.id
@@ -681,6 +710,14 @@ function TrackTab({ address, isConnected, marketAddress, weekId, onConnect, onEx
   const chainStakeUsdc = Number(chainStakeRaw ?? BigInt(0)) / 1e6
   const totalStake = appStakeUsdc + chainStakeUsdc
   const hasOnChainStake = totalStake > 0
+  const v3Available = Boolean(V3_MARKET_ADDRESS)
+  const demoReceipt = {
+    total: 4520,
+    entries: [
+      { label: 'Talent Protocol', pill: '#1 Pick · 10x', amount: 4000 },
+      { label: 'Coinbase Wallet', pill: 'Top 10 · 1x', amount: 520 },
+    ],
+  }
 
   useEffect(() => {
     if (!address || !hasOnChainStake) { setLoaded(true); return }
@@ -783,11 +820,50 @@ function TrackTab({ address, isConnected, marketAddress, weekId, onConnect, onEx
     </>
   )
 
+  const heroAmount = (demoReceipt.total / 100).toFixed(2)
+  const shareText = encodeURIComponent(`I just won $${heroAmount} predicting Base apps on BaseRank.`)
+  const shareUrl = `https://warpcast.com/~/compose?text=${shareText}`
+
   const resultsView = (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 text-center">
-      <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-800 text-xl">★</div>
-      <p className="text-lg font-semibold">Results coming soon</p>
-      <p className="mt-1 text-sm text-zinc-500">Completed bets + claim flow unlock once V3 is live.</p>
+    <div className="space-y-4">
+      <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-[#0b1c2d] via-[#02050a] to-black p-6">
+        <p className="text-[11px] uppercase tracking-[0.4em] text-white/60">You Won</p>
+        <p className="mt-2 text-5xl font-extrabold tracking-tight text-[#7dffbe] font-mono">+${heroAmount}</p>
+        <p className="mt-1 text-sm text-white/70">Week {WEEK_ID.toString()} · demo payout</p>
+        {!v3Available && (
+          <span className="absolute right-5 top-5 rounded-full border border-white/30 px-2.5 py-0.5 text-[10px] uppercase tracking-widest text-white/80">V3 Coming</span>
+        )}
+      </div>
+
+      <div className="rounded-3xl border border-white/10 bg-zinc-950/60 p-5 shadow-[0_25px_60px_rgba(0,0,0,0.45)]">
+        <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.3em] text-white/60">
+          <span>Bet Receipt</span>
+          {!v3Available && <span className="rounded-full border border-white/20 px-2 py-0.5">Demo</span>}
+        </div>
+        <div className="mt-4 space-y-3">
+          {demoReceipt.entries.map((entry, idx) => (
+            <div key={idx} className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-white">{entry.label}</p>
+                <p className="text-[11px] text-white/60">{entry.pill}</p>
+              </div>
+              <p className="text-lg font-semibold text-white font-mono">+${(entry.amount / 100).toFixed(2)}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3 text-sm font-semibold text-white">
+          <span>Total</span>
+          <span>${heroAmount}</span>
+        </div>
+        <div className="mt-5 space-y-2">
+          <button className="w-full rounded-full bg-[#0052FF] py-3 text-sm font-bold text-white disabled:opacity-30" disabled={!v3Available}>
+            {v3Available ? 'Claim USDC' : 'Claim opens with V3'}
+          </button>
+          <a href={shareUrl} target="_blank" rel="noreferrer" className="block w-full rounded-full border border-white/30 py-3 text-center text-sm font-semibold text-white/80 hover:text-white">
+            Share win
+          </a>
+        </div>
+      </div>
     </div>
   )
 
