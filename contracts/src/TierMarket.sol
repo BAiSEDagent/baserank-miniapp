@@ -126,6 +126,9 @@ contract TierMarket is Ownable, ReentrancyGuard {
     error ZeroMinStake();
     error LockTimeInPast();
     error TooEarlyToLock(uint256 lockTime_, uint256 blockTime);
+    error StakingWindowClosed();
+    error EventCancelled();
+    error EmptyCandidateSet();
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -157,7 +160,10 @@ contract TierMarket is Ownable, ReentrancyGuard {
             revert ZeroAddress();
         }
         if (feeBps_ > 1000) revert FeeBpsTooHigh(feeBps_, 1000);
-        if (tierThreshold_ == 0 || tierThreshold_ > 100) revert InvalidTierThreshold(tierThreshold_);
+        // Only spec-defined tier values are valid
+        if (tierThreshold_ != 1 && tierThreshold_ != 5 && tierThreshold_ != 10) {
+            revert InvalidTierThreshold(tierThreshold_);
+        }
         if (lockTime_ <= block.timestamp) revert LockTimeInPast();
         if (minStake_ == 0) revert ZeroMinStake();
 
@@ -173,6 +179,7 @@ contract TierMarket is Ownable, ReentrancyGuard {
 
         // Snapshot candidate list locally for O(1) membership checks and gas-efficient iteration
         bytes32[] memory cands = IEventRegistry(registry_).candidates(eventId_);
+        if (cands.length == 0) revert EmptyCandidateSet(); // event doesn't exist or has no candidates
         for (uint256 i = 0; i < cands.length; ) {
             candidateList.push(cands[i]);
             isCandidate[cands[i]] = true;
@@ -191,7 +198,10 @@ contract TierMarket is Ownable, ReentrancyGuard {
     ///         Reverts for unknown candidates and addresses on the denylist.
     function predict(bytes32 candidateId, uint256 amount) external nonReentrant {
         if (status != MarketStatus.OPEN) revert NotOpen();
-        if (block.timestamp >= lockTime) revert TooEarlyToLock(lockTime, block.timestamp); // staking window closed
+        if (block.timestamp >= lockTime) revert StakingWindowClosed();
+
+        // Registry event already cancelled — block new stakes immediately
+        if (registry.isCancelled(eventId)) revert EventCancelled();
 
         // Candidate must be in the event's canonical set
         if (!isCandidate[candidateId]) revert NotACandidate(candidateId);
