@@ -50,6 +50,9 @@ contract EventRegistry is Ownable {
         bytes32 resolutionHash;    // keccak256(abi.encodePacked(rankedCandidateIds))
         bytes32 snapshotHash;      // off-chain provenance hash supplied by resolver
         address resolvedBy;
+        // Snapshot global roles at event creation so mid-flight changes have no effect
+        address resolver;
+        address governance;
         bytes32[] candidates;      // immutable candidate list
         mapping(bytes32 => bool)   isCandidate;  // O(1) membership check
         mapping(bytes32 => uint16) finalRank;    // 1-based; 0 = unranked/loser
@@ -186,6 +189,9 @@ contract EventRegistry is Ownable {
         e.resolveTime       = cfg.resolveTime;
         e.claimWindow       = cfg.claimWindow;
         e.resolutionTimeout = cfg.resolutionTimeout;
+        // Snapshot roles so mid-flight global changes cannot affect a live event
+        e.resolver          = resolver;
+        e.governance        = governance;
 
         // Store candidate list + build O(1) membership map; reject duplicates
         for (uint256 i = 0; i < cfg.candidateIds.length; ) {
@@ -213,8 +219,9 @@ contract EventRegistry is Ownable {
         bytes32[] calldata rankedCandidateIds,
         bytes32 snapshotHash  // off-chain provenance (separate from computed resolutionHash)
     ) external {
-        if (msg.sender != resolver) revert Unauthorized();
         EventData storage e = _getEvent(eventId);
+        // Use per-event snapshotted resolver — global resolver changes do not affect live events
+        if (msg.sender != e.resolver) revert Unauthorized();
         if (e.status != EventStatus.CREATED) revert InvalidStatus(e.status, EventStatus.CREATED);
         if (block.timestamp < e.resolveTime)  revert TooEarlyToResolve(e.resolveTime, block.timestamp);
 
@@ -251,8 +258,9 @@ contract EventRegistry is Ownable {
     ///         Only callable during the challenge window.
     ///         NOTE: rank data remains in storage; TierMarkets MUST check isResolved() before trusting ranks.
     function challengeResolution(uint256 eventId, string calldata reason) external {
-        if (msg.sender != governance) revert Unauthorized();
         EventData storage e = _getEvent(eventId);
+        // Use per-event snapshotted governance — global governance changes do not affect live events
+        if (msg.sender != e.governance) revert Unauthorized();
         if (e.status != EventStatus.RESOLVE_SUBMITTED) {
             revert InvalidStatus(e.status, EventStatus.RESOLVE_SUBMITTED);
         }
@@ -388,6 +396,23 @@ contract EventRegistry is Ownable {
 
     function eventCount() external view returns (uint256) {
         return eventIds.length;
+    }
+
+    /// @notice Returns all timing parameters needed for countdown/cancel UX.
+    function getEventTiming(uint256 eventId)
+        external
+        view
+        returns (
+            uint256 lockTime,
+            uint256 resolveTime,
+            uint256 resolutionTimeout,
+            uint256 claimWindow,
+            address eventResolver,
+            address eventGovernance
+        )
+    {
+        EventData storage e = _events[eventId];
+        return (e.lockTime, e.resolveTime, e.resolutionTimeout, e.claimWindow, e.resolver, e.governance);
     }
 
     // -------------------------------------------------------------------------
