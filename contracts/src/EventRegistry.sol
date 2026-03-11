@@ -113,6 +113,8 @@ contract EventRegistry is Ownable {
     error NotACandidate(bytes32 candidateId);
     error TooManyRanks(uint256 provided, uint256 maximum);
     error ZeroAddress();
+    error TimeoutTooShortForResolution(uint256 timeoutAt, uint256 requiredAfter);
+    error ZeroCandidateId();
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -143,6 +145,7 @@ contract EventRegistry is Ownable {
     /// @notice Add or remove an address from the staking denylist.
     ///         Keep this narrow: only add resolver signers.
     function setDenylist(address account, bool denied) external onlyOwner {
+        if (account == address(0)) revert ZeroAddress();  // [N-3/INFO] consistent zero-address guard
         denylist[account] = denied;
         emit DenylistUpdated(account, denied);
     }
@@ -166,6 +169,16 @@ contract EventRegistry is Ownable {
         if (cfg.resolutionTimeout < MIN_RESOLUTION_TIMEOUT) {
             revert ResolutionTimeoutTooShort(cfg.resolutionTimeout, MIN_RESOLUTION_TIMEOUT);
         }
+        // [N-1] Ensure the resolver always has a window to submit AND the challenge period
+        //       can complete before the timeout-cancel becomes actionable.
+        //       Without this, an event with a far resolveTime but short resolutionTimeout
+        //       can be cancelled before the resolver is even allowed to submit.
+        if (cfg.lockTime + cfg.resolutionTimeout <= cfg.resolveTime + MIN_CHALLENGE_PERIOD) {
+            revert TimeoutTooShortForResolution(
+                cfg.lockTime + cfg.resolutionTimeout,
+                cfg.resolveTime + MIN_CHALLENGE_PERIOD
+            );
+        }
 
         EventData storage e = _events[cfg.eventId];
         e.status            = EventStatus.CREATED;
@@ -177,6 +190,7 @@ contract EventRegistry is Ownable {
         // Store candidate list + build O(1) membership map; reject duplicates
         for (uint256 i = 0; i < cfg.candidateIds.length; ) {
             bytes32 cId = cfg.candidateIds[i];
+            if (cId == bytes32(0)) revert ZeroCandidateId();       // [N-3/LOW] reject zero IDs
             if (e.isCandidate[cId]) revert DuplicateCandidate(cId);
             e.isCandidate[cId] = true;
             e.candidates.push(cId);
