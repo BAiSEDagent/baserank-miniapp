@@ -492,4 +492,86 @@ contract EventRegistryTest is Test {
         vm.expectRevert(EventRegistry.ZeroAddress.selector);
         reg.setDenylist(address(0), true);
     }
+
+    // -------------------------------------------------------------------------
+    // G-1: Inverse snapshot — new role holders cannot act on old events
+    // -------------------------------------------------------------------------
+
+    function test_newResolver_cannotSubmitForSnapshotEvent() public {
+        _createEvent();
+        vm.prank(owner);
+        reg.setResolver(address(0x99));
+
+        vm.warp(resolveTime);
+        bytes32[] memory ranked = new bytes32[](1);
+        ranked[0] = cA;
+        vm.prank(address(0x99)); // new global resolver — should be rejected
+        vm.expectRevert(EventRegistry.Unauthorized.selector);
+        reg.submitResolution(EVENT_ID, ranked, bytes32(0));
+    }
+
+    function test_newGovernance_cannotChallengeSnapshotEvent() public {
+        _createEvent();
+        _submitResolution();
+        vm.prank(owner);
+        reg.setGovernance(address(0x99));
+
+        vm.prank(address(0x99)); // new global governance — should be rejected
+        vm.expectRevert(EventRegistry.Unauthorized.selector);
+        reg.challengeResolution(EVENT_ID, "veto");
+    }
+
+    // -------------------------------------------------------------------------
+    // G-2: Double-submit reverts (state transition is one-way)
+    // -------------------------------------------------------------------------
+
+    function test_submitResolution_revert_alreadySubmitted() public {
+        _createEvent();
+        _submitResolution();
+
+        bytes32[] memory ranked = new bytes32[](1);
+        ranked[0] = cC;
+        vm.prank(resolver);
+        vm.expectRevert(abi.encodeWithSelector(
+            EventRegistry.InvalidStatus.selector,
+            EventRegistry.EventStatus.RESOLVE_SUBMITTED,
+            EventRegistry.EventStatus.CREATED
+        ));
+        reg.submitResolution(EVENT_ID, ranked, bytes32(0));
+    }
+
+    // -------------------------------------------------------------------------
+    // G-3: claimDeadline for CANCELLED events
+    // -------------------------------------------------------------------------
+
+    function test_claimDeadline_cancelled() public {
+        _createEvent();
+        uint256 cancelAt = lockTime + resolutionTimeout + 1;
+        vm.warp(cancelAt);
+        reg.cancelEvent(EVENT_ID);
+        assertEq(reg.claimDeadline(EVENT_ID), cancelAt + CLAIM_WINDOW);
+    }
+
+    // -------------------------------------------------------------------------
+    // G-4: snapshotHash is persisted separately from computed resolutionHash
+    // -------------------------------------------------------------------------
+
+    function test_submitResolution_snapshotHash_stored() public {
+        _createEvent();
+        vm.warp(resolveTime);
+        bytes32[] memory ranked = new bytes32[](1);
+        ranked[0] = cA;
+        bytes32 snapshot = bytes32("my_snapshot");
+        vm.prank(resolver);
+        reg.submitResolution(EVENT_ID, ranked, snapshot);
+
+        (,,,,,,,, bytes32 storedSnapshot,) = reg.getEventMeta(EVENT_ID);
+        assertEq(storedSnapshot, snapshot);
+
+        // Also verify resolutionHash is the on-chain computed value, not snapshotHash
+        bytes32 expectedResolutionHash = keccak256(abi.encodePacked(ranked));
+        (,,,,,,, bytes32 storedResolutionHash,,) = reg.getEventMeta(EVENT_ID);
+        assertEq(storedResolutionHash, expectedResolutionHash);
+        assertTrue(storedResolutionHash != snapshot); // they must differ
+    }
 }
