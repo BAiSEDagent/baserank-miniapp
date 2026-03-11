@@ -52,6 +52,15 @@ contract BatchClaimer {
 
         for (uint256 i = 0; i < markets.length; ) {
             address market = markets[i];
+
+            // Guard: a call to an address with no deployed code returns (true, "")
+            // which would emit a false ClaimSucceeded. Treat no-code as ClaimFailed.
+            if (market.code.length == 0) {
+                emit ClaimFailed(msg.sender, market, abi.encodePacked("NoCode"));
+                unchecked { ++i; }
+                continue;
+            }
+
             // Call claimFor(msg.sender) so TierMarket computes payout for the user,
             // not for BatchClaimer. Funds go directly to msg.sender inside TierMarket.
             (bool success, bytes memory returnData) = market.call(

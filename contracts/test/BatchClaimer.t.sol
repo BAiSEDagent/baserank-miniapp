@@ -264,6 +264,25 @@ contract BatchClaimerTest is Test {
     }
 
     // ─────────────────────────────────────────────
+    // FR-1: no-code address emits ClaimFailed, not ClaimSucceeded
+    // ─────────────────────────────────────────────
+
+    function test_claimMany_noCodeAddress_emitsClaimFailed() public {
+        // An EOA or undeployed address has no code; should not emit ClaimSucceeded
+        address ghost = address(0xDEAD);
+        assertEq(ghost.code.length, 0);
+
+        address[] memory markets = new address[](1);
+        markets[0] = ghost;
+
+        vm.expectEmit(true, true, false, false);
+        emit BatchClaimer.ClaimFailed(alice, ghost, abi.encodePacked("NoCode"));
+
+        vm.prank(alice);
+        batcher.claimMany(markets);
+    }
+
+    // ─────────────────────────────────────────────
     // BatchClaimer holds no funds
     // ─────────────────────────────────────────────
 

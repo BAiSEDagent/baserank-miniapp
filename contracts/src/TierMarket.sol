@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {ReentrancyGuard} from "../lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
-import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.sol";
+import {Ownable2Step, Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -33,7 +33,7 @@ interface IEventRegistry {
 ///  - resolve() auto-locks the market if lock() was never called
 ///  - lock() allows owner to lock early for emergency; permissionless after lockTime
 ///  - cancelMarket() permissionless once registry event is cancelled; nonReentrant
-contract TierMarket is Ownable, ReentrancyGuard {
+contract TierMarket is Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // -------------------------------------------------------------------------

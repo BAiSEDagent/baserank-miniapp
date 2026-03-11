@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.sol";
+import {Ownable2Step, Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 
 /// @title EventRegistry
 /// @notice Canonical source of truth for Base leaderboard snapshot events.
@@ -17,7 +17,7 @@ import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.so
 ///  - empty ranked list rejected
 ///  - rank data remains in storage after challenge-cancellation; callers MUST check isResolved()
 ///  - denylist stored here, enforced in TierMarket.predict()
-contract EventRegistry is Ownable {
+contract EventRegistry is Ownable2Step {
     // -------------------------------------------------------------------------
     // Types
     // -------------------------------------------------------------------------
