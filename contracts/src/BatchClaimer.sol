@@ -3,7 +3,8 @@ pragma solidity ^0.8.24;
 
 /// @notice Minimal interface for TierMarket consumed by BatchClaimer.
 interface ITierMarket {
-    function claim() external;
+    /// @notice Claim on behalf of `user`; funds go to `user`, not msg.sender.
+    function claimFor(address user) external;
     function claimable(address user) external view returns (uint256);
 }
 
@@ -51,9 +52,10 @@ contract BatchClaimer {
 
         for (uint256 i = 0; i < markets.length; ) {
             address market = markets[i];
-            // Low-level call so a revert in one market doesn't bubble up
+            // Call claimFor(msg.sender) so TierMarket computes payout for the user,
+            // not for BatchClaimer. Funds go directly to msg.sender inside TierMarket.
             (bool success, bytes memory returnData) = market.call(
-                abi.encodeCall(ITierMarket.claim, ())
+                abi.encodeCall(ITierMarket.claimFor, (msg.sender))
             );
             if (success) {
                 emit ClaimSucceeded(msg.sender, market);

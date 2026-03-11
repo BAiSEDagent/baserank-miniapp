@@ -306,34 +306,46 @@ contract TierMarket is Ownable, ReentrancyGuard {
     // Claims
     // -------------------------------------------------------------------------
 
-    /// @notice Claim winnings (RESOLVED) or refund (CANCELLED / no-winner RESOLVED).
-    ///         Strictly follows CEI: marks claimed before transfer.
-    ///         Reverts after claimDeadline or after finalization.
+    /// @notice Convenience wrapper — claims on behalf of msg.sender.
     function claim() external nonReentrant {
+        _claim(msg.sender);
+    }
+
+    /// @notice Delegated claim — computes payout for `user` and transfers to `user`.
+    ///         Caller can be any address (e.g. BatchClaimer). Funds NEVER go to caller.
+    ///         Non-custodial: CEI enforced, claimed[user] prevents double-claims regardless of caller.
+    function claimFor(address user) external nonReentrant {
+        _claim(user);
+    }
+
+    /// @dev Internal claim logic shared by claim() and claimFor().
+    ///      Payout is always sent to `user`; `msg.sender` is irrelevant.
+    function _claim(address user) internal {
         if (status != MarketStatus.RESOLVED && status != MarketStatus.CANCELLED) {
             revert NotResolved();
         }
-        if (finalized)              revert AlreadyFinalized();
-        if (claimed[msg.sender])    revert AlreadyClaimed();
+        if (finalized)       revert AlreadyFinalized();
+        if (claimed[user])   revert AlreadyClaimed();
 
         uint256 deadline = registry.claimDeadline(eventId);
         if (block.timestamp > deadline) revert ClaimDeadlinePassed();
 
-        uint256 payout = _computePayout(msg.sender);
+        uint256 payout = _computePayout(user);
         if (payout == 0) revert NothingToClaim();
 
         // Effects — set before transfer (CEI)
-        claimed[msg.sender] = true;
-        totalClaimed        += payout;
+        claimed[user]  = true;
+        totalClaimed  += payout;
 
-        // Interaction
-        usdc.safeTransfer(msg.sender, payout);
+        // Interaction — funds always go to user, not msg.sender
+        usdc.safeTransfer(user, payout);
 
-        emit Claimed(msg.sender, payout);
+        emit Claimed(user, payout);
     }
 
     /// @notice Preview claimable amount without side effects.
     function claimable(address user) external view returns (uint256) {
+        // NOTE: used by BatchClaimer.previewMany() — must remain a view function
         if (status != MarketStatus.RESOLVED && status != MarketStatus.CANCELLED) return 0;
         if (finalized)           return 0;
         if (claimed[user])       return 0;

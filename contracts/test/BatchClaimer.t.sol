@@ -8,33 +8,43 @@ import {BatchClaimer} from "../src/BatchClaimer.sol";
 // Mock TierMarket
 // ─────────────────────────────────────────────
 
-/// @dev Configurable mock: can succeed, revert, or return specific claimable amounts.
+/// @dev Configurable mock: enforces msg.sender-keyed stakes like the real TierMarket.
+///      claim() is preserved for direct-call tests; claimFor() is the batch path.
 contract MockMarket {
     bool    public shouldRevert;
     bytes   public revertData;
-    bool    public claimed;
-    uint256 public claimableAmount;
+    mapping(address => bool) public claimed;
+    mapping(address => uint256) public stakes; // user => claimable amount
 
-    event ClaimCalled(address caller);
+    event ClaimCalled(address indexed user);
 
-    function configure(bool _shouldRevert, bytes calldata _revertData, uint256 _claimable) external {
-        shouldRevert    = _shouldRevert;
-        revertData      = _revertData;
-        claimableAmount = _claimable;
+    function setStake(address user, uint256 amount) external { stakes[user] = amount; }
+    function setShouldRevert(bool v, bytes calldata data) external { shouldRevert = v; revertData = data; }
+
+    // Legacy configure for revert-only tests (no stake needed)
+    function configure(bool _shouldRevert, bytes calldata _revertData, uint256) external {
+        shouldRevert = _shouldRevert;
+        revertData   = _revertData;
     }
 
-    function claim() external {
+    function _doClaimFor(address user) internal {
         if (shouldRevert) {
             bytes memory data = revertData;
             assembly { revert(add(data, 32), mload(data)) }
         }
-        claimed = true;
-        emit ClaimCalled(msg.sender);
+        require(stakes[user] > 0, "NothingToClaim");
+        require(!claimed[user],   "AlreadyClaimed");
+        claimed[user] = true;
+        emit ClaimCalled(user);
     }
 
-    function claimable(address) external view returns (uint256) {
-        return claimableAmount;
-    }
+    /// @notice Direct claim — user is msg.sender
+    function claim() external { _doClaimFor(msg.sender); }
+
+    /// @notice Delegated claim — user is explicit arg (BatchClaimer path)
+    function claimFor(address user) external { _doClaimFor(user); }
+
+    function claimable(address user) external view returns (uint256) { return stakes[user]; }
 }
 
 /// @dev Market that reverts claimable() — for previewMany resilience test.
@@ -73,6 +83,9 @@ contract BatchClaimerTest is Test {
     function test_claimMany_allSucceed() public {
         MockMarket m1 = new MockMarket();
         MockMarket m2 = new MockMarket();
+        // Give alice stakes so claimFor(alice) succeeds
+        m1.setStake(alice, 100e6);
+        m2.setStake(alice, 50e6);
 
         address[] memory markets = new address[](2);
         markets[0] = address(m1);
@@ -86,8 +99,8 @@ contract BatchClaimerTest is Test {
         vm.prank(alice);
         batcher.claimMany(markets);
 
-        assertTrue(m1.claimed());
-        assertTrue(m2.claimed());
+        assertTrue(m1.claimed(alice));
+        assertTrue(m2.claimed(alice));
     }
 
     // ─────────────────────────────────────────────
@@ -99,7 +112,9 @@ contract BatchClaimerTest is Test {
         MockMarket bad   = new MockMarket();
         MockMarket good2 = new MockMarket();
 
-        // Encode a custom revert payload
+        good1.setStake(alice, 100e6);
+        good2.setStake(alice, 80e6);
+        // bad has no stake for alice → will revert NothingToClaim
         bytes memory revertPayload = abi.encodeWithSignature("AlreadyClaimed()");
         bad.configure(true, revertPayload, 0);
 
@@ -112,9 +127,9 @@ contract BatchClaimerTest is Test {
         batcher.claimMany(markets);
 
         // good markets succeeded, bad market was skipped
-        assertTrue(good1.claimed());
-        assertFalse(bad.claimed());
-        assertTrue(good2.claimed());
+        assertTrue(good1.claimed(alice));
+        assertFalse(bad.claimed(alice));
+        assertTrue(good2.claimed(alice));
     }
 
     // ─────────────────────────────────────────────
@@ -156,8 +171,8 @@ contract BatchClaimerTest is Test {
         vm.prank(bob);
         batcher.claimMany(markets);
 
-        assertFalse(bad1.claimed());
-        assertFalse(bad2.claimed());
+        assertFalse(bad1.claimed(bob));
+        assertFalse(bad2.claimed(bob));
     }
 
     // ─────────────────────────────────────────────
@@ -166,33 +181,38 @@ contract BatchClaimerTest is Test {
 
     function test_claimMany_single_success() public {
         MockMarket m = new MockMarket();
+        m.setStake(alice, 100e6);
         address[] memory markets = new address[](1);
         markets[0] = address(m);
 
         vm.prank(alice);
         batcher.claimMany(markets);
 
-        assertTrue(m.claimed());
+        assertTrue(m.claimed(alice));
     }
 
     // ─────────────────────────────────────────────
-    // claimMany — uses msg.sender (not BatchClaimer as caller)
+    // claimMany — claimFor(user) so funds go to user not BatchClaimer
     // ─────────────────────────────────────────────
 
-    function test_claimMany_claimCalledByCorrectSender() public {
-        // The low-level call forwards msg.sender — so the market sees BatchClaimer as caller.
-        // This is expected: BatchClaimer is the msg.sender to the market, but it acts on behalf
-        // of the user. Markets that tie claim() to msg.sender will register BatchClaimer's address.
-        // This test documents and pins that behavior.
+    function test_claimMany_claimsForUser_notBatchClaimer() public {
+        // BatchClaimer calls claimFor(alice), not claim().
+        // Inside the market, user = alice, so alice's stake is found and alice is credited.
+        // BatchClaimer itself has no stake and would fail if claim() were called instead.
         MockMarket m = new MockMarket();
+        m.setStake(alice, 100e6);
+        // Deliberately do NOT give BatchClaimer any stake
+        // so if claim() (msg.sender path) were used, it would revert
+
         address[] memory markets = new address[](1);
         markets[0] = address(m);
 
         vm.prank(alice);
         batcher.claimMany(markets);
 
-        // Market was claimed (by BatchClaimer on behalf of alice)
-        assertTrue(m.claimed());
+        // alice's claim recorded — not BatchClaimer's
+        assertTrue(m.claimed(alice));
+        assertFalse(m.claimed(address(batcher)));
     }
 
     // ─────────────────────────────────────────────
@@ -202,8 +222,8 @@ contract BatchClaimerTest is Test {
     function test_previewMany_returnsAmounts() public {
         MockMarket m1 = new MockMarket();
         MockMarket m2 = new MockMarket();
-        m1.configure(false, "", 50e6);
-        m2.configure(false, "", 100e6);
+        m1.setStake(alice, 50e6);
+        m2.setStake(alice, 100e6);
 
         address[] memory markets = new address[](2);
         markets[0] = address(m1);
@@ -221,7 +241,7 @@ contract BatchClaimerTest is Test {
     function test_previewMany_resilient_toBrokenMarket() public {
         MockMarket good    = new MockMarket();
         BrokenClaimableMarket broken = new BrokenClaimableMarket();
-        good.configure(false, "", 75e6);
+        good.setStake(alice, 75e6);
 
         address[] memory markets = new address[](2);
         markets[0] = address(good);
