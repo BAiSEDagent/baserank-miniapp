@@ -643,6 +643,13 @@ contract TierMarketTest is Test {
         assertEq(market.claimable(alice), 0);
     }
 
+    function test_claimable_cancelledMarket_fullRefund() public {
+        vm.prank(alice); market.predict(cA, 100e6);
+        reg.setCancelled(true);
+        market.cancelMarket();
+        assertEq(market.claimable(alice), 100e6);
+    }
+
     function test_claimable_zero_afterDeadline() public {
         _stakeAndLock();
         reg.setRank(cA, 1);
