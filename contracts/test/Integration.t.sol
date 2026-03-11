@@ -347,28 +347,35 @@ contract IntegrationTest is Test {
         _lockMarket();
         vm.warp(lockTime); market2.lock();
 
-        // cA=1, cB=2, cC=6 — wins Top10, cA/cB win Top5 (cC rank 6 > 5)
-        bytes32[] memory ranked = new bytes32[](3);
-        ranked[0] = cA; ranked[1] = cB; ranked[2] = cC;
+        // cA=rank1, cB=rank2, cC=UNRANKED (rank 0)
+        // → alice wins Top10 (cA ≤10) and Top5 (cA ≤5)
+        // → bob wins Top10 (cB rank2 ≤10) but LOSES Top5 (cC unranked)
+        bytes32[] memory ranked = new bytes32[](2);
+        ranked[0] = cA; ranked[1] = cB; // cC intentionally omitted → rank 0
         _submitAndFinalizeResolution(ranked);
 
         market.resolve();
         market2.resolve();
 
-        // alice wins on both; bob wins on market (cB rank2 ≤ 10), loses on market2 (cC rank6 > 5)
         address[] memory markets = new address[](2);
         markets[0] = address(market);
         markets[1] = address(market2);
 
         uint256 aliceBefore = usdc.balanceOf(alice);
         vm.prank(alice);
-        batcher.claimMany(markets); // both succeed
+        batcher.claimMany(markets); // both succeed (cA wins Top10 and Top5)
         assertGt(usdc.balanceOf(alice) - aliceBefore, 0);
 
         uint256 bobBefore = usdc.balanceOf(bob);
         vm.prank(bob);
-        batcher.claimMany(markets); // market succeeds, market2 fails (ClaimFailed emitted)
-        assertGt(usdc.balanceOf(bob) - bobBefore, 0); // market1 payout received
+        batcher.claimMany(markets); // market succeeds (cB rank2 ≤10), market2 emits ClaimFailed (cC unranked)
+
+        uint256 bobPayout = usdc.balanceOf(bob) - bobBefore;
+        // bob only gets market1 payout — market2 was a ClaimFailed (best-effort, no revert)
+        uint256 expectedFromMarket1 = (uint256(80e6) * market.netPool()) / market.winningStake();
+        assertEq(bobPayout, expectedFromMarket1);
+        // Confirm bob got nothing from market2 (cC unranked → NothingToClaim → ClaimFailed)
+        assertEq(market2.claimable(bob), 0);
     }
 
     // ─────────────────────────────────────────────
@@ -469,6 +476,73 @@ contract IntegrationTest is Test {
         // carol staked on loser → 0
         uint256[] memory carolAmounts = batcher.previewMany(markets, carol);
         assertEq(carolAmounts[0], 0);
+    }
+
+    // ─────────────────────────────────────────────
+    // 10. G-1: Resolution timeout → cancelEvent → cancelMarket → refunds via BatchClaimer
+    // ─────────────────────────────────────────────
+
+    function test_integration_timeoutCancel_batchRefund() public {
+        _stake(); // alice 100, bob 80, carol 20
+
+        // Nobody submits a resolution — skip past resolutionTimeout
+        // resolutionTimeout = 30 days; resolveTime = lockTime + 2h
+        vm.warp(resolveTime + resolutionTimeout + 1);
+        reg.cancelEvent(EVENT_ID);
+        assertTrue(reg.isCancelled(EVENT_ID));
+
+        market.cancelMarket();
+        assertEq(uint8(market.status()), uint8(TierMarket.MarketStatus.CANCELLED));
+        assertTrue(market.noWinner());
+        assertEq(market.feeAmount(), 0);
+
+        address[] memory markets = new address[](1);
+        markets[0] = address(market);
+
+        uint256 aliceBefore = usdc.balanceOf(alice);
+        vm.prank(alice);
+        batcher.claimMany(markets);
+        assertEq(usdc.balanceOf(alice) - aliceBefore, 100e6);
+
+        uint256 bobBefore = usdc.balanceOf(bob);
+        vm.prank(bob);
+        batcher.claimMany(markets);
+        assertEq(usdc.balanceOf(bob) - bobBefore, 80e6);
+
+        uint256 carolBefore = usdc.balanceOf(carol);
+        vm.prank(carol);
+        batcher.claimMany(markets);
+        assertEq(usdc.balanceOf(carol) - carolBefore, 20e6);
+
+        assertEq(usdc.balanceOf(address(batcher)), 0);
+        assertEq(usdc.balanceOf(address(market)), 0);
+    }
+
+    // ─────────────────────────────────────────────
+    // 11. G-2: Auto-lock path — resolve() called without prior lock()
+    // ─────────────────────────────────────────────
+
+    function test_integration_autoLock_resolve() public {
+        _stake();
+        // Do NOT call lock() — let resolve() auto-lock
+
+        bytes32[] memory ranked = new bytes32[](2);
+        ranked[0] = cA; ranked[1] = cB;
+        _submitAndFinalizeResolution(ranked);
+
+        // resolve() should auto-lock before resolving
+        assertEq(uint8(market.status()), uint8(TierMarket.MarketStatus.OPEN));
+        market.resolve(); // triggers auto-lock then resolution
+        assertEq(uint8(market.status()), uint8(TierMarket.MarketStatus.RESOLVED));
+
+        // Claims work normally after auto-lock resolve
+        address[] memory markets = new address[](1);
+        markets[0] = address(market);
+
+        uint256 aliceBefore = usdc.balanceOf(alice);
+        vm.prank(alice);
+        batcher.claimMany(markets);
+        assertGt(usdc.balanceOf(alice) - aliceBefore, 0);
     }
 
     // ─────────────────────────────────────────────
