@@ -545,6 +545,117 @@ contract TierMarketTest is Test {
     // Partial claim progression (spec example 11.4)
     // ─────────────────────────────────────────────
 
+    // ─────────────────────────────────────────────
+    // G-1: Missing constructor revert tests
+    // ─────────────────────────────────────────────
+
+    function test_constructor_revert_zeroAddress_usdc() public {
+        vm.prank(owner);
+        vm.expectRevert(TierMarket.ZeroAddress.selector);
+        new TierMarket(owner, address(0), address(reg), 1, TIER, FEE_BPS, feeDest, lockTime, MIN_STAKE, MAX_STAKE);
+    }
+
+    function test_constructor_revert_feeBpsTooHigh() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(TierMarket.FeeBpsTooHigh.selector, uint16(1001), uint16(1000)));
+        new TierMarket(owner, address(usdc), address(reg), 1, TIER, 1001, feeDest, lockTime, MIN_STAKE, MAX_STAKE);
+    }
+
+    function test_constructor_revert_lockTimeInPast() public {
+        vm.prank(owner);
+        vm.expectRevert(TierMarket.LockTimeInPast.selector);
+        new TierMarket(owner, address(usdc), address(reg), 1, TIER, FEE_BPS, feeDest, block.timestamp, MIN_STAKE, MAX_STAKE);
+    }
+
+    // ─────────────────────────────────────────────
+    // G-2: Double-resolve reverts (one-shot invariant)
+    // ─────────────────────────────────────────────
+
+    function test_resolve_revert_alreadyResolved() public {
+        _stakeAndLock();
+        reg.setRank(cA, 1);
+        reg.setResolved(true);
+        market.resolve();
+        vm.expectRevert(TierMarket.NotLocked.selector);
+        market.resolve();
+    }
+
+    // ─────────────────────────────────────────────
+    // G-3: finalizeMarket access control
+    // ─────────────────────────────────────────────
+
+    function test_finalizeMarket_revert_notOwner() public {
+        _stakeAndLock();
+        reg.setResolved(true);
+        market.resolve();
+        vm.warp(claimDeadline + 1);
+        vm.prank(alice);
+        vm.expectRevert(); // OwnableUnauthorizedAccount
+        market.finalizeMarket();
+    }
+
+    // ─────────────────────────────────────────────
+    // G-4: Multi-winner exact payout precision + dust bound
+    // ─────────────────────────────────────────────
+
+    function test_multiWinner_exact_payouts() public {
+        _stakeAndLock();
+        // cA(100) + cB(80) win, cC(20) loses
+        // totalStaked=200, fee=4, netPool=196, winningStake=180
+        reg.setRank(cA, 1);
+        reg.setRank(cB, 5);
+        reg.setResolved(true);
+        market.resolve();
+
+        assertEq(market.netPool(), 196e6);
+        assertEq(market.winningStake(), 180e6);
+
+        // alice: 100 * 196_000000 / 180_000000 = 108_888888 (truncated)
+        uint256 alicePayout = (uint256(100e6) * uint256(196e6)) / uint256(180e6);
+        // bob:   80  * 196_000000 / 180_000000 = 87_111111 (truncated)
+        uint256 bobPayout   = (uint256(80e6)  * uint256(196e6)) / uint256(180e6);
+
+        assertEq(market.claimable(alice), alicePayout);
+        assertEq(market.claimable(bob),   bobPayout);
+        assertEq(market.claimable(carol), 0); // loser
+
+        vm.prank(alice); market.claim();
+        vm.prank(bob);   market.claim();
+
+        assertEq(market.totalClaimed(), alicePayout + bobPayout);
+
+        // Dust = netPool - totalClaimed; must be < winnerCount (rounding bound)
+        uint256 dust = 196e6 - market.totalClaimed();
+        assertLt(dust, 2); // at most 1 wei dust for 2 winners
+    }
+
+    // ─────────────────────────────────────────────
+    // G-5: claimable() returns zero after state changes
+    // ─────────────────────────────────────────────
+
+    function test_claimable_zero_afterClaim() public {
+        _stakeAndLock();
+        reg.setRank(cA, 1);
+        reg.setResolved(true);
+        market.resolve();
+        vm.prank(alice);
+        market.claim();
+        assertEq(market.claimable(alice), 0);
+    }
+
+    function test_claimable_zero_afterDeadline() public {
+        _stakeAndLock();
+        reg.setRank(cA, 1);
+        reg.setResolved(true);
+        market.resolve();
+        vm.warp(claimDeadline + 1);
+        assertEq(market.claimable(alice), 0);
+    }
+
+    // ─────────────────────────────────────────────
+    // Partial claim progression (spec example 11.4)
+    // ─────────────────────────────────────────────
+
     function test_partial_claim_progression() public {
         _stakeAndLock();
         reg.setRank(cA, 1);
