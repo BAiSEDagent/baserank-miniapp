@@ -21,6 +21,7 @@ import Image from 'next/image'
 import { requestBaseNotificationPermission } from '@/lib/notifications'
 import { motion } from 'framer-motion'
 import { TierMarketABI } from '@/lib/contracts/TierMarketABI'
+import { BatchClaimerABI } from '@/lib/contracts/BatchClaimerABI'
 import { candidateIdForKey } from '@/lib/candidate-id'
 import { getEventTierConfig, type MarketKind, type TierKey } from '@/lib/event-tier'
 
@@ -566,6 +567,7 @@ export default function Home() {
               <TrackTab
                 address={address}
                 isConnected={isConnected}
+                batchClaimerAddress={eventTierConfig?.batchClaimerAddress}
                 onConnect={() => smartWallet && connect({ connector: smartWallet })}
                 onExplore={() => setActiveTab('markets')}
               />
@@ -661,17 +663,27 @@ export default function Home() {
 
 type Position = {
   app: string
+  candidateKey: string
+  candidateId: `0x${string}`
   market: string
   amount: string
+  claimable: string
   rank: number | null
   iconUrl: string | null
   weeklyUsers: string | null
   betType?: string // V3: "top1" | "top5" | "top10"
+  resolved: boolean
+  cancelled: boolean
+  noWinner: boolean
+  finalized: boolean
+  marketAddress: `0x${string}`
+  eventId: string
 }
 
-function TrackTab({ address, isConnected, onConnect, onExplore }: {
+function TrackTab({ address, isConnected, batchClaimerAddress, onConnect, onExplore }: {
   address: `0x${string}` | undefined
   isConnected: boolean
+  batchClaimerAddress: `0x${string}` | undefined
   onConnect: () => void
   onExplore: () => void
 }) {
@@ -679,14 +691,9 @@ function TrackTab({ address, isConnected, onConnect, onExplore }: {
   const [loaded, setLoaded] = useState(false)
   const [view, setView] = useState<'live' | 'results'>('live')
   const [totalStake, setTotalStake] = useState(0)
-  const demoReceipt = {
-    total: 4520,
-    entries: [
-      { label: 'Talent Protocol', pill: '#1 Pick · 10x', amount: 4000 },
-      { label: 'Coinbase Wallet', pill: 'Top 10 · 1x', amount: 520 },
-    ],
-  }
-
+  const [claimIntent, setClaimIntent] = useState(false)
+  const { writeContractAsync: claimWriteAsync, data: claimHash, isPending: isClaimSending } = useWriteContract()
+  const { isLoading: isClaimConfirming, isSuccess: isClaimConfirmed } = useWaitForTransactionReceipt({ hash: claimHash })
   useEffect(() => {
     if (!address) return
     let cancelled = false
@@ -706,6 +713,35 @@ function TrackTab({ address, isConnected, onConnect, onExplore }: {
     load()
     return () => { cancelled = true }
   }, [address])
+
+  const claimableMarkets = useMemo(() => {
+    const seen = new Set<string>()
+    return positions.filter((p) => {
+      if (Number(p.claimable) <= 0) return false
+      if (seen.has(p.marketAddress)) return false
+      seen.add(p.marketAddress)
+      return true
+    })
+  }, [positions])
+
+  const totalClaimable = useMemo(
+    () => claimableMarkets.reduce((sum, p) => sum + Number(p.claimable), 0),
+    [claimableMarkets],
+  )
+
+  async function handleBatchClaim() {
+    if (!batchClaimerAddress) throw new Error('Missing batch claimer address')
+    const markets = claimableMarkets.map((p) => p.marketAddress)
+    if (markets.length === 0) throw new Error('Nothing to claim')
+    setClaimIntent(true)
+    await claimWriteAsync({
+      address: batchClaimerAddress,
+      abi: BatchClaimerABI,
+      functionName: 'claimMany',
+      args: [markets],
+      chainId: TARGET_CHAIN,
+    })
+  }
 
   const betTypePill = (bt?: string) => {
     if (!bt) return null
@@ -792,44 +828,49 @@ function TrackTab({ address, isConnected, onConnect, onExplore }: {
     </>
   )
 
-  const heroAmount = (demoReceipt.total / 100).toFixed(2)
-  const shareText = encodeURIComponent(`I just won $${heroAmount} predicting Base apps on BaseRank.`)
+  const heroAmount = totalClaimable.toFixed(2)
+  const shareText = encodeURIComponent(`I have $${heroAmount} claimable on BaseRank.`)
   const shareUrl = `https://warpcast.com/~/compose?text=${shareText}`
 
   const resultsView = (
     <div className="space-y-4">
       <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-[#0b1c2d] via-[#02050a] to-black p-6">
-        <p className="text-[11px] uppercase tracking-[0.4em] text-white/60">You Won</p>
-        <p className="mt-2 text-5xl font-extrabold tracking-tight text-[#7dffbe] font-mono">+${heroAmount}</p>
-        <p className="mt-1 text-sm text-white/70">Event-tier preview payout</p>
+        <p className="text-[11px] uppercase tracking-[0.4em] text-white/60">Claimable</p>
+        <p className="mt-2 text-5xl font-extrabold tracking-tight text-[#7dffbe] font-mono">${heroAmount}</p>
+        <p className="mt-1 text-sm text-white/70">Across {claimableMarkets.length} event-tier market{claimableMarkets.length === 1 ? '' : 's'}</p>
       </div>
 
       <div className="rounded-3xl border border-white/10 bg-zinc-950/60 p-5 shadow-[0_25px_60px_rgba(0,0,0,0.45)]">
         <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.3em] text-white/60">
-          <span>Bet Receipt</span>
-          <span className="rounded-full border border-white/20 px-2 py-0.5">Preview</span>
+          <span>Claim Preview</span>
+          <span className="rounded-full border border-white/20 px-2 py-0.5">BatchClaimer</span>
         </div>
         <div className="mt-4 space-y-3">
-          {demoReceipt.entries.map((entry, idx) => (
+          {claimableMarkets.length > 0 ? claimableMarkets.map((entry, idx) => (
             <div key={idx} className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-white">{entry.label}</p>
-                <p className="text-[11px] text-white/60">{entry.pill}</p>
+                <p className="text-sm font-semibold text-white">{entry.app}</p>
+                <p className="text-[11px] text-white/60">{entry.market} · {entry.betType ?? 'tier'}{entry.noWinner ? ' · refund' : ''}</p>
               </div>
-              <p className="text-lg font-semibold text-white font-mono">+${(entry.amount / 100).toFixed(2)}</p>
+              <p className="text-lg font-semibold text-white font-mono">${Number(entry.claimable).toFixed(2)}</p>
             </div>
-          ))}
+          )) : (
+            <p className="text-sm text-white/60">No claimable winnings or refunds yet.</p>
+          )}
         </div>
         <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3 text-sm font-semibold text-white">
           <span>Total</span>
           <span>${heroAmount}</span>
         </div>
+        {(claimIntent || isClaimConfirmed) && (
+          <p className="mt-3 text-xs text-white/70">{isClaimConfirmed ? 'Claim confirmed' : isClaimSending || isClaimConfirming ? 'Submitting claim…' : 'Claim ready'}</p>
+        )}
         <div className="mt-5 space-y-2">
-          <button className="w-full rounded-full bg-[#0052FF] py-3 text-sm font-bold text-white disabled:opacity-30" disabled>
-            Claim wiring lands in Unit 4
+          <button className="w-full rounded-full bg-[#0052FF] py-3 text-sm font-bold text-white disabled:opacity-30" disabled={!batchClaimerAddress || totalClaimable <= 0 || isClaimSending || isClaimConfirming} onClick={() => void handleBatchClaim()}>
+            {isClaimSending || isClaimConfirming ? 'Claiming…' : totalClaimable > 0 ? 'Claim via BatchClaimer' : 'Nothing claimable yet'}
           </button>
           <a href={shareUrl} target="_blank" rel="noreferrer" className="block w-full rounded-full border border-white/30 py-3 text-center text-sm font-semibold text-white/80 hover:text-white">
-            Share win
+            Share status
           </a>
         </div>
       </div>
