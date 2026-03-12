@@ -1,9 +1,9 @@
 import { encodePacked, keccak256 } from 'viem'
 import type { MarketKind } from './event-tier'
 
-export function candidateKey(input: { market: MarketKind; projectName: string }) {
-  const normalized = input.projectName.trim()
-  if (!normalized) throw new Error('projectName is required for candidate ID derivation')
+export function canonicalCandidateKey(input: { market: MarketKind; candidateKey: string }) {
+  const normalized = input.candidateKey.trim()
+  if (!normalized) throw new Error('candidateKey is required for candidate ID derivation')
   return `${input.market}:${normalized}`
 }
 
@@ -12,9 +12,9 @@ export function candidateKey(input: { market: MarketKind; projectName: string })
  *
  * IMPORTANT:
  * This must stay byte-for-byte aligned with resolver/tooling/docs.
- * Current convention: keccak256(abi.encodePacked("<market>:<projectName>"))
- * Example: "app:Clash of Coins" or "chain:Base App"
+ * Candidate keys should come from a stable canonical identifier (projectId/slug),
+ * not mutable display copy.
  */
-export function candidateIdForProject(input: { market: MarketKind; projectName: string }): `0x${string}` {
-  return keccak256(encodePacked(['string'], [candidateKey(input)]))
+export function candidateIdForKey(input: { market: MarketKind; candidateKey: string }): `0x${string}` {
+  return keccak256(encodePacked(['string'], [canonicalCandidateKey(input)]))
 }

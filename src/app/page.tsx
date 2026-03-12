@@ -12,10 +12,10 @@ import {
   useEnsName,
   useEnsAvatar,
   useBalance,
-
   useReadContract,
+  useReadContracts,
 } from 'wagmi'
-import { parseUnits, encodePacked, keccak256, getAddress } from 'viem'
+import { parseUnits, getAddress } from 'viem'
 import { base } from 'wagmi/chains'
 import { BetSheet } from '@/components/bet-sheet'
 import { CountdownTimer } from '@/components/countdown-timer'
@@ -23,12 +23,20 @@ import Image from 'next/image'
 import { requestBaseNotificationPermission } from '@/lib/notifications'
 import { motion } from 'framer-motion'
 import { BaseRankMarketV2ABI } from '@/lib/contracts/BaseRankMarketV2ABI'
+import { TierMarketABI } from '@/lib/contracts/TierMarketABI'
+import { candidateIdForKey } from '@/lib/candidate-id'
+import { getEventTierConfig, type MarketKind, type TierKey } from '@/lib/event-tier'
+
 
 const _raw = (process.env.NEXT_PUBLIC_MARKET_ADDRESS ?? '').replace(/^["'\s]+|["'\s]+$/g, '')
 const MARKET_ADDRESS: `0x${string}` | undefined = _raw
   ? (() => { try { return getAddress(_raw) } catch { return undefined } })()
   : undefined
-const WEEK_ID = BigInt(20260307)
+const _v3Raw = (process.env.NEXT_PUBLIC_V3_MARKET_ADDRESS ?? '').replace(/^['"\s]+|['"\s]+$/g, '')
+const V3_MARKET_ADDRESS: `0x${string}` | undefined = _v3Raw
+  ? (() => { try { return getAddress(_v3Raw) } catch { return undefined } })()
+  : undefined
+const WEEK_ID = BigInt(20260311)
 const TARGET_CHAIN = base.id
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const
 const MIN_STAKE_USDC = 0.01 // $0.01 minimum = 10000 in 6 decimals
@@ -53,6 +61,13 @@ type LeaderboardEntry = {
   totalTransactions: string
   iconUrl: string
   tradeable?: boolean
+}
+
+function tierKeyFromSheetTier(tier: number): TierKey {
+  if (tier === 1) return 'top10'
+  if (tier === 2) return 'top5'
+  if (tier === 3) return 'top1'
+  throw new Error(`Unsupported tier selection: ${tier}`)
 }
 
 export default function Home() {
@@ -101,16 +116,28 @@ export default function Home() {
     return (appMarket as { lockTime?: bigint } | undefined)?.lockTime ?? null
   }, [appMarket])
 
+  const weekLabel = useMemo(() => {
+    const oT = (appMarket as { openTime?: bigint } | undefined)?.openTime
+    const lT = (appMarket as { lockTime?: bigint } | undefined)?.lockTime
+    if (!oT || !lT) return null
+    const fmt = (ts: bigint) => {
+      const d = new Date(Number(ts) * 1000)
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+    }
+    return `Week of ${fmt(oT)} – ${fmt(lT)}`
+  }, [appMarket])
+
   const [open, setOpen] = useState(false)
   const [apps, setApps] = useState<LeaderboardEntry[]>([])
   const [appsLoading, setAppsLoading] = useState(true)
   const [lastUpdateMs, setLastUpdateMs] = useState<number | null>(null)
   const [nextRefreshMs, setNextRefreshMs] = useState<number | null>(null)
   const [selectedApp, setSelectedApp] = useState('')
+  const [selectedEntry, setSelectedEntry] = useState<LeaderboardEntry | null>(null)
   const [txStep, setTxStep] = useState<'idle' | 'signing' | 'submitting' | 'confirmed' | 'error'>('idle')
   const [celebrate, setCelebrate] = useState(false)
   const [toast, setToast] = useState('')
-  const [activeTab, setActiveTab] = useState<'markets' | 'positions' | 'resolve' | 'profile'>('markets')
+  const [activeTab, setActiveTab] = useState<'markets' | 'track' | 'results' | 'profile'>('markets')
   const [marketType, setMarketType] = useState<'app' | 'chain'>('chain')
   const [mounted, setMounted] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null)
@@ -120,6 +147,14 @@ export default function Home() {
     () => connectors.find((c) => c.name.toLowerCase().includes('coinbase')),
     [connectors],
   )
+
+  const eventTierConfig = useMemo(() => {
+    try {
+      return getEventTierConfig(TARGET_CHAIN)
+    } catch {
+      return null
+    }
+  }, [])
 
   const wrongChain = isConnected && chainId !== base.id
   const identityLabel = ensName || 'Connected User'
@@ -148,9 +183,15 @@ export default function Home() {
           lastUpdated?: string | null
         }
         if (cancelled) return
-        const list = data.entries?.slice(0, 25) ?? []
+        const list = data.entries?.slice(0, 50) ?? []
         setApps(list)
-        if (list.length > 0) setSelectedApp((prev) => (list.some((x) => x.projectName === prev) ? prev : list[0].projectName))
+        if (list.length > 0) {
+          const nextSelected = list.find((x) => x.projectName === selectedApp) ?? list[0]
+          setSelectedApp(nextSelected.projectName)
+          setSelectedEntry(nextSelected)
+        } else {
+          setSelectedEntry(null)
+        }
         setLastUpdateMs(data.lastUpdated ? new Date(data.lastUpdated).getTime() : data.fetchedAt ? new Date(data.fetchedAt).getTime() : Date.now())
         setNextRefreshMs(data.nextRefreshAt ? new Date(data.nextRefreshAt).getTime() : Date.now() + 60_000)
       } finally {
@@ -164,7 +205,7 @@ export default function Home() {
       cancelled = true
       clearInterval(poll)
     }
-  }, [marketType])
+  }, [marketType, selectedApp])
 
   useEffect(() => {
     if (!isConfirmed) return
@@ -187,9 +228,9 @@ export default function Home() {
 
   async function handleSubmit({ tier, amount }: { tier: number; amount: string }) {
     try {
-      if (!MARKET_ADDRESS) throw new Error('Missing contract address')
+      if (!eventTierConfig) throw new Error('Event-tier mode requires complete config; no legacy fallback allowed')
       if (!isConnected || !address) throw new Error('Connect wallet first')
-      if (!selectedApp) throw new Error('Select an app from the leaderboard first')
+      if (!selectedEntry) throw new Error('Select an app from the leaderboard first')
 
       const numAmount = Number(amount)
       if (!numAmount || numAmount < MIN_STAKE_USDC) throw new Error(`Minimum stake is $${MIN_STAKE_USDC}`)
@@ -199,10 +240,15 @@ export default function Home() {
         return
       }
 
-      setTxStep('signing')
-      const appId = keccak256(encodePacked(['string'], [`${marketType}:${selectedApp}`]))
+      const tierKey = tierKeyFromSheetTier(tier)
+      const marketKey: MarketKind = marketType
+      const tierMarket = eventTierConfig.markets[marketKey]?.[tierKey]
+      if (!tierMarket?.address) {
+        throw new Error(`event-tier mode requires tierMarketAddress for ${marketKey}:${tierKey}`)
+      }
+
+      const candidateId = candidateIdForKey({ market: marketKey, candidateKey: selectedEntry.projectId })
       const value = parseUnits(amount, 6)
-      const marketTypeInt = marketType === 'app' ? 0 : 1
 
       const { createPublicClient, http } = await import('viem')
       const { base: baseChain } = await import('viem/chains')
@@ -210,12 +256,12 @@ export default function Home() {
 
       setTxStep('submitting')
 
-      // Step 1: Check USDC allowance — approve if needed, wait for confirmation
+      // Step 1: Check USDC allowance for the resolved TierMarket — approve if needed, wait for confirmation
       const allowance = await publicClient.readContract({
         address: USDC_BASE,
         abi: [{ type: 'function', name: 'allowance', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] }],
         functionName: 'allowance',
-        args: [address, MARKET_ADDRESS],
+        args: [address, tierMarket.address],
       }) as bigint
 
       if (allowance < value) {
@@ -224,20 +270,19 @@ export default function Home() {
           address: USDC_BASE,
           abi: [{ type: 'function', name: 'approve', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] }],
           functionName: 'approve',
-          args: [MARKET_ADDRESS, value],
+          args: [tierMarket.address, value],
           chainId: TARGET_CHAIN,
         })
-        // Wait for approval to be mined before proceeding
         await publicClient.waitForTransactionReceipt({ hash: approveTxHash })
         setToast('Step 2/2: Submitting prediction…')
       }
 
-      // Step 2: Submit prediction
+      // Step 2: Submit prediction to the resolved audited TierMarket only
       await writeContractAsync({
-        address: MARKET_ADDRESS,
-        abi: BaseRankMarketV2ABI,
+        address: tierMarket.address,
+        abi: TierMarketABI,
         functionName: 'predict',
-        args: [WEEK_ID, marketTypeInt, appId, value],
+        args: [candidateId, value],
         chainId: TARGET_CHAIN,
       })
 
@@ -402,13 +447,13 @@ export default function Home() {
       )}
 
       <div className="mx-auto max-w-md pb-28 pt-0">
-        <header className="sticky top-0 z-40 mb-2 flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+        <header className="sticky top-0 z-40 mb-2 flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-3 dark:border-zinc-800 dark:bg-zinc-950">
           <div>
             <p className="text-xs uppercase tracking-widest text-zinc-500">Base Mini App</p>
             <h1 className="flex items-center gap-2 text-xl font-semibold text-zinc-950 dark:text-white">
               BaseRank
-              <span className="inline-flex items-center gap-1 text-[10px] font-mono text-emerald-400">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> LIVE
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono text-[#0052FF]">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-[#0052FF]" /> LIVE
               </span>
             </h1>
           </div>
@@ -439,16 +484,16 @@ export default function Home() {
           </div>
         )}
 
-        <section className="mb-4 border-b border-zinc-200 px-4 pb-4 dark:border-zinc-800">
+        <section className="mb-4 border-b border-zinc-200 px-6 pb-4 dark:border-zinc-800">
           <p className="text-xs uppercase tracking-wide text-zinc-500">Weekly prediction volume</p>
           <p className="mt-1 text-5xl font-extrabold tracking-tighter">
-            {totalPoolUsdc >= 1000 ? `$${(totalPoolUsdc / 1000).toFixed(1)}K` : `$${totalPoolUsdc.toFixed(0)}`}
+            {totalPoolUsdc >= 1000 ? `$${(totalPoolUsdc / 1000).toFixed(1)}K` : totalPoolUsdc >= 1 ? `$${totalPoolUsdc.toFixed(2)}` : `$${totalPoolUsdc.toFixed(2)}`}
           </p>
           <div className="mt-2 flex items-center gap-3 text-xs">
-            <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+            <span className="rounded-full bg-blue-50 px-2 py-1 font-semibold text-[#0052FF] dark:bg-blue-950/40 dark:text-blue-300">
               {totalPoolUsdc > 0 ? 'Live on Base' : 'Markets open'}
             </span>
-            <span className="text-zinc-500">Epoch #{WEEK_ID.toString()}</span>
+            <span className="text-zinc-500">{weekLabel ?? `Epoch #${WEEK_ID.toString()}`}</span>
           </div>
         </section>
 
@@ -465,13 +510,13 @@ export default function Home() {
 
         {showMarkets ? (
           <section className="space-y-3">
-            <div className="flex items-center justify-between px-4 pb-1 text-xs">
+            <div className="flex items-center justify-between px-6 pb-1 text-xs">
               <span className="text-zinc-500">{formatLastUpdate(lastUpdateMs)}</span>
               <span className="rounded-full bg-zinc-100 px-3 py-1 font-bold tracking-tight text-zinc-900 dark:bg-zinc-900 dark:text-white">
                 <CountdownTimer nextRefreshMs={lockTime ? Number(lockTime) * 1000 : nextRefreshMs} label={lockTime ? 'Locks in' : undefined} />
               </span>
             </div>
-            <div className="px-4 pb-2">
+            <div className="px-6 pb-2">
               <div className="inline-flex rounded-full border border-zinc-200 p-1 dark:border-zinc-800">
                 <button
                   onClick={() => setMarketType('chain')}
@@ -487,7 +532,7 @@ export default function Home() {
                 </button>
               </div>
             </div>
-            {appsLoading && <div className="px-4 text-sm text-zinc-500">Loading leaderboard candidates…</div>}
+            {appsLoading && <div className="px-6 text-sm text-zinc-500">Loading leaderboard candidates…</div>}
             {!appsLoading &&
               apps.map((entry) => {
                 const wtus = Number(entry.weeklyTransactingUsers || '0')
@@ -499,9 +544,10 @@ export default function Home() {
                     onClick={() => {
                       if (!canTrade) return
                       setSelectedApp(entry.projectName)
+                      setSelectedEntry(entry)
                       setOpen(true)
                     }}
-                    className={`w-full border-b border-zinc-200 px-4 py-3 text-left dark:border-zinc-800 ${!canTrade ? 'opacity-60' : ''}`}
+                    className={`w-full border-b border-zinc-200 px-6 py-3 text-left dark:border-zinc-800 ${!canTrade ? 'opacity-60' : ''}`}
                   >
                     <div className="flex items-center gap-3">
                       <div className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full bg-zinc-200 text-xs font-bold dark:bg-zinc-800">
@@ -527,60 +573,20 @@ export default function Home() {
               })}
           </section>
         ) : (
-          <section className="px-4 py-6">
-            {activeTab === 'positions' && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between border border-zinc-200 p-4 dark:border-zinc-800">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-zinc-500">Unclaimed winnings</p>
-                    <p className="text-2xl font-extrabold tracking-tight">$0.00 USDC</p>
-                  </div>
-                  <button
-                    className="h-11 min-h-11 rounded-full bg-zinc-200 px-5 text-sm font-bold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-                    disabled
-                  >
-                    Claim
-                  </button>
-                </div>
-
-                <div className="grid min-h-[220px] place-items-center border border-zinc-200 p-6 text-center dark:border-zinc-800">
-                  {!isConnected ? (
-                    <div>
-                      <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-100 text-xl dark:bg-zinc-900">◌</div>
-                      <p className="text-xl font-bold tracking-tight">Connect to view positions</p>
-                      <p className="mt-1 text-sm text-zinc-500">Connect your Smart Wallet to track your predictions.</p>
-                      <button
-                        className="mt-4 h-11 min-h-11 rounded-full bg-[#0052FF] px-5 text-sm font-bold text-white"
-                        onClick={() => smartWallet && connect({ connector: smartWallet })}
-                      >
-                        Connect Wallet
-                      </button>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-100 text-xl dark:bg-zinc-900">◎</div>
-                      <p className="text-xl font-bold tracking-tight">No active predictions</p>
-                      <p className="mt-1 text-sm text-zinc-500">Place your first prediction to track it here.</p>
-                      <button
-                        className="mt-4 h-11 min-h-11 rounded-full bg-[#0052FF] px-5 text-sm font-bold text-white"
-                        onClick={() => setActiveTab('markets')}
-                      >
-                        Explore Markets
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
+          <section className="px-6 py-6">
+            {activeTab === 'track' && (
+              <TrackTab
+                address={address}
+                isConnected={isConnected}
+                marketAddress={MARKET_ADDRESS}
+                weekId={WEEK_ID}
+                onConnect={() => smartWallet && connect({ connector: smartWallet })}
+                onExplore={() => setActiveTab('markets')}
+              />
             )}
 
-            {activeTab === 'resolve' && (
-              <div className="border border-zinc-200 p-4 text-sm dark:border-zinc-800">
-                <p className="font-semibold">Resolution controls</p>
-                <p className="mt-1 text-zinc-500">Admin operations are available in the ops checklist.</p>
-                <a className="mt-3 inline-block rounded-full bg-zinc-100 px-4 py-2 text-xs font-bold dark:bg-zinc-800" href="/ops/checklist">
-                  Open Checklist
-                </a>
-              </div>
+            {activeTab === 'results' && (
+              <ResultsTab marketAddress={MARKET_ADDRESS} />
             )}
 
             {activeTab === 'profile' && (
@@ -627,7 +633,7 @@ export default function Home() {
         )}
 
         <footer className="mt-6 border-t border-zinc-200 p-3 text-[11px] text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-          <p>1% protocol fee. V1 markets resolved manually from official Base leaderboard snapshots.</p>
+          <p>2% protocol fee. Markets resolved from official Base leaderboard snapshots.</p>
         </footer>
       </div>
 
@@ -635,8 +641,8 @@ export default function Home() {
         <div className="mx-auto grid h-16 max-w-md grid-cols-4">
           {[
             { key: 'markets', label: 'Markets', icon: '◫' },
-            { key: 'positions', label: 'Positions', icon: '◎' },
-            { key: 'resolve', label: 'Resolve', icon: '◉' },
+            { key: 'track', label: 'Track', icon: '◎' },
+            { key: 'results', label: 'Results', icon: '◉' },
             { key: 'profile', label: 'Profile', icon: '◌' },
           ].map((item) => (
             <button
@@ -647,7 +653,7 @@ export default function Home() {
               <div className="relative flex flex-col items-center justify-center gap-1">
                 <span className={`text-sm ${activeTab === item.key ? 'opacity-100' : 'opacity-70'}`}>{item.icon}</span>
                 <span>{item.label}</span>
-                {item.key === 'positions' && <span className="absolute -right-1 top-0 h-2 w-2 rounded-full bg-red-500" />}
+
               </div>
             </button>
           ))}
@@ -664,5 +670,333 @@ export default function Home() {
         poolUsdc={totalPoolUsdc}
       />
     </main>
+  )
+}
+
+type Position = {
+  app: string
+  market: string
+  amount: string
+  rank: number | null
+  iconUrl: string | null
+  weeklyUsers: string | null
+  betType?: string // V3: "top1" | "top5" | "top10"
+}
+
+function TrackTab({ address, isConnected, marketAddress, weekId, onConnect, onExplore }: {
+  address: `0x${string}` | undefined
+  isConnected: boolean
+  marketAddress: `0x${string}` | undefined
+  weekId: bigint
+  onConnect: () => void
+  onExplore: () => void
+}) {
+  const [positions, setPositions] = useState<Position[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [view, setView] = useState<'live' | 'results'>('live')
+
+  const { data: appStakeRaw } = useReadContract({
+    address: marketAddress,
+    abi: BaseRankMarketV2ABI,
+    functionName: 'userTotalStake',
+    args: [weekId, 0, address!],
+    chainId: base.id,
+    query: { enabled: !!marketAddress && !!address },
+  })
+  const { data: chainStakeRaw } = useReadContract({
+    address: marketAddress,
+    abi: BaseRankMarketV2ABI,
+    functionName: 'userTotalStake',
+    args: [weekId, 1, address!],
+    chainId: base.id,
+    query: { enabled: !!marketAddress && !!address },
+  })
+
+  const appStakeUsdc = Number(appStakeRaw ?? BigInt(0)) / 1e6
+  const chainStakeUsdc = Number(chainStakeRaw ?? BigInt(0)) / 1e6
+  const totalStake = appStakeUsdc + chainStakeUsdc
+  const hasOnChainStake = totalStake > 0
+  const v3Available = Boolean(V3_MARKET_ADDRESS)
+  const demoReceipt = {
+    total: 4520,
+    entries: [
+      { label: 'Talent Protocol', pill: '#1 Pick · 10x', amount: 4000 },
+      { label: 'Coinbase Wallet', pill: 'Top 10 · 1x', amount: 520 },
+    ],
+  }
+
+  useEffect(() => {
+    if (!address || !hasOnChainStake) { setLoaded(true); return }
+    let cancelled = false
+    async function load() {
+      try {
+        const r = await fetch(`/api/positions?address=${address}&epoch=${weekId.toString()}`, { cache: 'no-store' })
+        const d = await r.json()
+        if (!cancelled) { setPositions(d.positions ?? []); setLoaded(true) }
+      } catch {
+        if (!cancelled) setLoaded(true)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [address, weekId, hasOnChainStake])
+
+  const betTypePill = (bt?: string) => {
+    if (!bt) return null
+    if (bt === 'top1') return <span className="rounded-full bg-[#0052FF] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">#1 Pick · 10x</span>
+    if (bt === 'top5') return <span className="rounded-full bg-[#0052FF]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#0052FF]">Top 5 · 3x</span>
+    return <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">Top 10 · 1x</span>
+  }
+
+  const trackFooter = (
+    address && <p className="text-[10px] text-zinc-400 font-mono">Connected: {address.slice(0, 6)}...{address.slice(-4)}</p>
+  )
+
+  const liveView = (
+    <>
+      {!isConnected ? (
+        <div className="grid min-h-[220px] place-items-center rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 text-center">
+          <div>
+            <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-800 text-xl">◌</div>
+            <p className="text-xl font-bold tracking-tight">Connect to view bets</p>
+            <p className="mt-1 text-sm text-zinc-500">Connect your Smart Wallet to track predictions.</p>
+            <button className="mt-4 h-11 min-h-11 rounded-full bg-[#0052FF] px-5 text-sm font-bold text-white" onClick={onConnect}>
+              Connect Wallet
+            </button>
+          </div>
+        </div>
+      ) : appStakeRaw === undefined && chainStakeRaw === undefined ? (
+        <div className="grid min-h-[120px] place-items-center rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 text-center">
+          <p className="text-sm text-zinc-500">Loading bets…</p>
+        </div>
+      ) : !hasOnChainStake ? (
+        <div className="grid min-h-[220px] place-items-center rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 text-center">
+          <div>
+            <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-zinc-800 text-xl">◎</div>
+            <p className="text-xl font-bold tracking-tight">No active picks</p>
+            <p className="mt-1 text-sm text-zinc-500">Place your first prediction to track it here.</p>
+            <button className="mt-4 h-11 min-h-11 rounded-full bg-[#0052FF] px-5 text-sm font-bold text-white" onClick={onExplore}>
+              Explore Markets
+            </button>
+          </div>
+        </div>
+      ) : positions.length > 0 ? (
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Live Bets ({positions.length})</p>
+          {positions.map((p, i) => (
+            <div key={i} className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4">
+              {p.iconUrl ? (
+                <Image src={p.iconUrl} alt={p.app} width={48} height={48} className="h-12 w-12 rounded-2xl" unoptimized />
+              ) : (
+                <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#0052FF]/10 text-base font-bold text-[#0052FF]">
+                  {p.app.charAt(0)}
+                </span>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold truncate">{p.app}</p>
+                <p className="text-[11px] text-zinc-500">
+                  {p.market === 'App' ? 'App Market' : 'Chain Market'}
+                  {p.rank ? ` · Rank #${p.rank}` : ''}
+                </p>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                    {p.market === 'App' ? 'App Market' : 'Chain Market'}
+                  </span>
+                  {betTypePill(p.betType)}
+                </div>
+              </div>
+              <div className="text-right shrink-0 pl-2">
+                <p className="text-lg font-bold font-mono">${Number(p.amount).toFixed(2)}</p>
+                <p className="text-[10px] text-zinc-500">USDC</p>
+              </div>
+            </div>
+          ))}
+          <p className="text-[11px] text-zinc-500">Bets lock when the epoch ends. Claim winnings after resolution.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Live Bets</p>
+          {[appStakeUsdc, chainStakeUsdc].some((v) => v > 0) && (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4 text-sm text-zinc-500">
+              Bets detected on-chain, but no breakdown returned yet.
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  )
+
+  const heroAmount = (demoReceipt.total / 100).toFixed(2)
+  const shareText = encodeURIComponent(`I just won $${heroAmount} predicting Base apps on BaseRank.`)
+  const shareUrl = `https://warpcast.com/~/compose?text=${shareText}`
+
+  const resultsView = (
+    <div className="space-y-4">
+      <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-[#0b1c2d] via-[#02050a] to-black p-6">
+        <p className="text-[11px] uppercase tracking-[0.4em] text-white/60">You Won</p>
+        <p className="mt-2 text-5xl font-extrabold tracking-tight text-[#7dffbe] font-mono">+${heroAmount}</p>
+        <p className="mt-1 text-sm text-white/70">Week {WEEK_ID.toString()} · demo payout</p>
+        {!v3Available && (
+          <span className="absolute right-5 top-5 rounded-full border border-white/30 px-2.5 py-0.5 text-[10px] uppercase tracking-widest text-white/80">V3 Coming</span>
+        )}
+      </div>
+
+      <div className="rounded-3xl border border-white/10 bg-zinc-950/60 p-5 shadow-[0_25px_60px_rgba(0,0,0,0.45)]">
+        <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.3em] text-white/60">
+          <span>Bet Receipt</span>
+          {!v3Available && <span className="rounded-full border border-white/20 px-2 py-0.5">Demo</span>}
+        </div>
+        <div className="mt-4 space-y-3">
+          {demoReceipt.entries.map((entry, idx) => (
+            <div key={idx} className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-white">{entry.label}</p>
+                <p className="text-[11px] text-white/60">{entry.pill}</p>
+              </div>
+              <p className="text-lg font-semibold text-white font-mono">+${(entry.amount / 100).toFixed(2)}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3 text-sm font-semibold text-white">
+          <span>Total</span>
+          <span>${heroAmount}</span>
+        </div>
+        <div className="mt-5 space-y-2">
+          <button className="w-full rounded-full bg-[#0052FF] py-3 text-sm font-bold text-white disabled:opacity-30" disabled={!v3Available}>
+            {v3Available ? 'Claim USDC' : 'Claim opens with V3'}
+          </button>
+          <a href={shareUrl} target="_blank" rel="noreferrer" className="block w-full rounded-full border border-white/30 py-3 text-center text-sm font-semibold text-white/80 hover:text-white">
+            Share win
+          </a>
+        </div>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
+        <p className="text-[10px] uppercase tracking-widest text-zinc-500">Your Total Stake</p>
+        <p className="mt-1 text-3xl font-extrabold tracking-tight font-mono">${totalStake.toFixed(2)} <span className="text-base font-semibold text-zinc-500">USDC</span></p>
+      </div>
+
+      <div className="mx-auto flex w-full max-w-xs items-center rounded-full bg-[#0f0f0f] p-1 text-[11px] font-semibold uppercase tracking-widest shadow-[0_0_30px_rgba(0,0,0,0.35)]">
+        {(['live', 'results'] as const).map((key) => {
+          const active = view === key
+          return (
+            <button
+              key={key}
+              onClick={() => setView(key)}
+              className={`${active ? 'bg-white text-black shadow-[0_5px_20px_rgba(255,255,255,0.25)]' : 'text-zinc-500'} flex-1 rounded-full px-4 py-1 text-center transition`}
+            >
+              {key === 'live' ? 'Live' : 'Results'}
+            </button>
+          )
+        })}
+      </div>
+
+      {view === 'live' ? liveView : resultsView}
+
+      {trackFooter}
+    </div>
+  )
+}
+
+type PoolSummary = { appMarket: { pool: string; state: number; stateLabel?: string }; chainMarket: { pool: string; state: number; stateLabel?: string }; totalPool: string }
+
+function ResultsTab({ marketAddress }: { marketAddress: `0x${string}` | undefined }) {
+  const [pools, setPools] = useState<PoolSummary | null>(null)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const r = await fetch('/api/activity', { cache: 'no-store' })
+        const d = await r.json()
+        if (!cancelled) { setPools(d); setLoaded(true) }
+      } catch {
+        if (!cancelled) setLoaded(true)
+      }
+    }
+    load()
+    const iv = setInterval(load, 15_000)
+    return () => { cancelled = true; clearInterval(iv) }
+  }, [])
+
+  return (
+    <div className="space-y-4">
+      <div className="border border-zinc-200 p-4 dark:border-zinc-800">
+        <p className="text-xs uppercase tracking-wide text-zinc-500">Market Pools</p>
+        {!loaded ? (
+          <p className="mt-3 text-sm text-zinc-400">Loading...</p>
+        ) : !pools ? (
+          <p className="mt-3 text-sm text-zinc-500">Unable to load market data.</p>
+        ) : (
+          <div className="mt-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">A</span>
+                <div>
+                  <p className="text-sm font-semibold">App Market</p>
+                  <p className="text-xs text-zinc-500">{pools.appMarket.stateLabel ?? (pools.appMarket.state === 1 ? 'Open' : pools.appMarket.state === 2 ? 'Locked' : pools.appMarket.state === 3 ? 'Resolved' : 'Inactive')}</p>
+                </div>
+              </div>
+              <span className="text-lg font-bold">${Number(pools.appMarket.pool).toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#0052FF]/10 text-xs font-bold text-[#0052FF]">C</span>
+                <div>
+                  <p className="text-sm font-semibold">Chain Market</p>
+                  <p className="text-xs text-zinc-500">{pools.chainMarket.stateLabel ?? (pools.chainMarket.state === 1 ? 'Open' : pools.chainMarket.state === 2 ? 'Locked' : pools.chainMarket.state === 3 ? 'Resolved' : 'Inactive')}</p>
+                </div>
+              </div>
+              <span className="text-lg font-bold">${Number(pools.chainMarket.pool).toFixed(2)}</span>
+            </div>
+            <div className="border-t border-zinc-200 pt-2 dark:border-zinc-700">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-zinc-500">Total Pool</span>
+                <span className="text-lg font-extrabold">${pools.totalPool}</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="border border-zinc-200 p-4 dark:border-zinc-800">
+        <p className="text-xs uppercase tracking-wide text-zinc-500">How It Works</p>
+        <div className="mt-3 space-y-3 text-sm text-zinc-600 dark:text-zinc-400">
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0052FF] text-[10px] font-bold text-white">1</span>
+            <p>Markets open weekly. Predict which apps will top the Base leaderboard.</p>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0052FF] text-[10px] font-bold text-white">2</span>
+            <p>Positions lock when the epoch ends. No new predictions after lock.</p>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0052FF] text-[10px] font-bold text-white">3</span>
+            <p>Winners are resolved from the official Base leaderboard snapshot. Payouts distribute automatically.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="border border-zinc-200 p-4 dark:border-zinc-800">
+        <p className="text-xs uppercase tracking-wide text-zinc-500">Past Results</p>
+        <div className="mt-3 grid min-h-[80px] place-items-center text-center">
+          <div>
+            <p className="text-lg font-bold tracking-tight">No results yet</p>
+            <p className="mt-1 text-sm text-zinc-500">Winners and payouts appear here after each epoch resolves.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="border border-zinc-200 p-4 text-xs text-zinc-500 dark:border-zinc-800">
+        <p className="font-semibold text-zinc-700 dark:text-zinc-300">Transparency</p>
+        <p className="mt-1">Markets are resolved using official Base leaderboard snapshots. Each resolution includes an on-chain snapshot hash for verification.</p>
+        <p className="mt-2">2% protocol fee · Contract on <a href={`https://basescan.org/address/${marketAddress}`} target="_blank" rel="noopener noreferrer" className="text-[#0052FF] underline">Basescan</a></p>
+      </div>
+    </div>
   )
 }
