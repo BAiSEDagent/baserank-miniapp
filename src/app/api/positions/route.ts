@@ -123,7 +123,9 @@ export async function GET(req: NextRequest) {
       market: string
       tier: string
       amount: string
+      amountRaw: string
       claimable: string
+      claimableRaw: string
       rank: number | null
       iconUrl: string | null
       weeklyUsers: string | null
@@ -159,7 +161,9 @@ export async function GET(req: NextRequest) {
         market: meta.market.kind === 'app' ? 'App' : 'Chain',
         tier: TIER_LABELS[meta.market.tier],
         amount: formatUnits(stake, 6),
+        amountRaw: stake.toString(),
         claimable: formatUnits(claimable, 6),
+        claimableRaw: claimable.toString(),
         rank: meta.entry.rank ?? null,
         iconUrl: meta.entry.iconUrl ?? null,
         weeklyUsers: meta.entry.weeklyTransactingUsers ?? null,
@@ -173,8 +177,12 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    positions.sort((a, b) => Number(b.amount) - Number(a.amount))
-    const total = positions.reduce((sum, p) => sum + Number(p.amount), 0)
+    positions.sort((a, b) => {
+      const diff = BigInt(b.amountRaw) - BigInt(a.amountRaw)
+      return diff > BigInt(0) ? 1 : diff < BigInt(0) ? -1 : 0
+    })
+    const totalRaw = positions.reduce((sum, p) => sum + BigInt(p.amountRaw), BigInt(0))
+    const total = formatUnits(totalRaw, 6)
     return NextResponse.json({ positions, total, queriedAddress: user })
   } catch (e) {
     return NextResponse.json({ positions: [], total: 0, error: String(e) }, { status: 500 })

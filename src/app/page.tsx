@@ -12,8 +12,9 @@ import {
   useEnsName,
   useEnsAvatar,
   useBalance,
+  usePublicClient,
 } from 'wagmi'
-import { parseUnits } from 'viem'
+import { parseUnits, parseEventLogs } from 'viem'
 import { base } from 'wagmi/chains'
 import { BetSheet } from '@/components/bet-sheet'
 import { CountdownTimer } from '@/components/countdown-timer'
@@ -102,7 +103,7 @@ export default function Home() {
   const [appsLoading, setAppsLoading] = useState(true)
   const [lastUpdateMs, setLastUpdateMs] = useState<number | null>(null)
   const [nextRefreshMs, setNextRefreshMs] = useState<number | null>(null)
-  const [selectedApp, setSelectedApp] = useState('')
+  const [selectedProjectId, setSelectedProjectId] = useState('')
   const [selectedEntry, setSelectedEntry] = useState<LeaderboardEntry | null>(null)
   const [txStep, setTxStep] = useState<'idle' | 'signing' | 'submitting' | 'confirmed' | 'error'>('idle')
   const [celebrate, setCelebrate] = useState(false)
@@ -156,11 +157,12 @@ export default function Home() {
         const list = data.entries?.slice(0, 50) ?? []
         setApps(list)
         if (list.length > 0) {
-          const nextSelected = list.find((x) => x.projectName === selectedApp) ?? list[0]
-          setSelectedApp(nextSelected.projectName)
+          const nextSelected = list.find((x) => x.projectId === selectedProjectId) ?? list[0]
+          setSelectedProjectId(nextSelected.projectId)
           setSelectedEntry(nextSelected)
         } else {
           setSelectedEntry(null)
+          setSelectedProjectId('')
         }
         setLastUpdateMs(data.lastUpdated ? new Date(data.lastUpdated).getTime() : data.fetchedAt ? new Date(data.fetchedAt).getTime() : Date.now())
         setNextRefreshMs(data.nextRefreshAt ? new Date(data.nextRefreshAt).getTime() : Date.now() + 60_000)
@@ -175,7 +177,7 @@ export default function Home() {
       cancelled = true
       clearInterval(poll)
     }
-  }, [marketType, selectedApp])
+  }, [marketType, selectedProjectId])
 
   useEffect(() => {
     let cancelled = false
@@ -532,7 +534,7 @@ export default function Home() {
                     key={entry.projectId}
                     onClick={() => {
                       if (!canTrade) return
-                      setSelectedApp(entry.projectName)
+                      setSelectedProjectId(entry.projectId)
                       setSelectedEntry(entry)
                       setOpen(true)
                     }}
@@ -653,7 +655,7 @@ export default function Home() {
         onClose={() => setOpen(false)}
         onSubmit={handleSubmit}
         busy={isTxSending || isConfirming}
-        app={selectedApp}
+        app={selectedEntry?.projectName ?? ''}
         connected={isConnected}
         poolUsdc={totalPoolUsdc}
       />
@@ -692,8 +694,19 @@ function TrackTab({ address, isConnected, batchClaimerAddress, onConnect, onExpl
   const [view, setView] = useState<'live' | 'results'>('live')
   const [totalStake, setTotalStake] = useState(0)
   const [claimIntent, setClaimIntent] = useState(false)
-  const { writeContractAsync: claimWriteAsync, data: claimHash, isPending: isClaimSending } = useWriteContract()
-  const { isLoading: isClaimConfirming, isSuccess: isClaimConfirmed } = useWaitForTransactionReceipt({ hash: claimHash })
+  const [claimMessage, setClaimMessage] = useState('')
+  const [claimStatus, setClaimStatus] = useState<'idle' | 'submitting' | 'success' | 'partial' | 'error'>('idle')
+  const { writeContractAsync: claimWriteAsync, isPending: isClaimSending } = useWriteContract()
+  const publicClient = usePublicClient({ chainId: TARGET_CHAIN })
+
+  async function loadPositions(currentAddress: `0x${string}`) {
+    const r = await fetch(`/api/positions?address=${currentAddress}`, { cache: 'no-store' })
+    const d = await r.json()
+    setPositions(d.positions ?? [])
+    setTotalStake(Number(d.total ?? 0))
+    setLoaded(true)
+  }
+
   useEffect(() => {
     if (!address) return
     let cancelled = false
@@ -731,16 +744,52 @@ function TrackTab({ address, isConnected, batchClaimerAddress, onConnect, onExpl
 
   async function handleBatchClaim() {
     if (!batchClaimerAddress) throw new Error('Missing batch claimer address')
+    if (!address) throw new Error('Connect wallet first')
+    if (!publicClient) throw new Error('Missing public client')
     const markets = claimableMarkets.map((p) => p.marketAddress)
     if (markets.length === 0) throw new Error('Nothing to claim')
+
     setClaimIntent(true)
-    await claimWriteAsync({
-      address: batchClaimerAddress,
-      abi: BatchClaimerABI,
-      functionName: 'claimMany',
-      args: [markets],
-      chainId: TARGET_CHAIN,
-    })
+    setClaimStatus('submitting')
+    setClaimMessage('Submitting claim…')
+
+    try {
+      const txHash = await claimWriteAsync({
+        address: batchClaimerAddress,
+        abi: BatchClaimerABI,
+        functionName: 'claimMany',
+        args: [markets],
+        chainId: TARGET_CHAIN,
+      })
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
+      const succeeded = parseEventLogs({ abi: BatchClaimerABI, logs: receipt.logs, eventName: 'ClaimSucceeded', strict: false })
+        .filter((log) => log.args.user?.toLowerCase() === address?.toLowerCase())
+      const failed = parseEventLogs({ abi: BatchClaimerABI, logs: receipt.logs, eventName: 'ClaimFailed', strict: false })
+        .filter((log) => log.args.user?.toLowerCase() === address?.toLowerCase())
+
+      await loadPositions(address)
+
+      if (failed.length === 0 && succeeded.length > 0) {
+        setClaimStatus('success')
+        setClaimMessage(`Claimed ${succeeded.length} market${succeeded.length === 1 ? '' : 's'}.`)
+        return
+      }
+
+      if (succeeded.length > 0 && failed.length > 0) {
+        setClaimStatus('partial')
+        setClaimMessage(`Partial claim: ${succeeded.length} succeeded, ${failed.length} failed.`)
+        return
+      }
+
+      setClaimStatus('error')
+      setClaimMessage(failed.length > 0 ? `Claim failed across ${failed.length} market${failed.length === 1 ? '' : 's'}.` : 'Claim transaction confirmed, but no claim success events were found.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Claim failed'
+      setClaimStatus('error')
+      setClaimMessage(message.slice(0, 120))
+      throw error
+    }
   }
 
   const betTypePill = (bt?: string) => {
@@ -862,12 +911,14 @@ function TrackTab({ address, isConnected, batchClaimerAddress, onConnect, onExpl
           <span>Total</span>
           <span>${heroAmount}</span>
         </div>
-        {(claimIntent || isClaimConfirmed) && (
-          <p className="mt-3 text-xs text-white/70">{isClaimConfirmed ? 'Claim confirmed' : isClaimSending || isClaimConfirming ? 'Submitting claim…' : 'Claim ready'}</p>
+        {(claimIntent || claimStatus !== 'idle') && (
+          <p className="mt-3 text-xs text-white/70">
+            {claimStatus === 'submitting' ? 'Submitting claim…' : claimMessage || 'Claim ready'}
+          </p>
         )}
         <div className="mt-5 space-y-2">
-          <button className="w-full rounded-full bg-[#0052FF] py-3 text-sm font-bold text-white disabled:opacity-30" disabled={!batchClaimerAddress || totalClaimable <= 0 || isClaimSending || isClaimConfirming} onClick={() => void handleBatchClaim()}>
-            {isClaimSending || isClaimConfirming ? 'Claiming…' : totalClaimable > 0 ? 'Claim via BatchClaimer' : 'Nothing claimable yet'}
+          <button className="w-full rounded-full bg-[#0052FF] py-3 text-sm font-bold text-white disabled:opacity-30" disabled={!batchClaimerAddress || totalClaimable <= 0 || isClaimSending || claimStatus === 'submitting'} onClick={() => void handleBatchClaim()}>
+            {isClaimSending || claimStatus === 'submitting' ? 'Claiming…' : totalClaimable > 0 ? 'Claim via BatchClaimer' : 'Nothing claimable yet'}
           </button>
           <a href={shareUrl} target="_blank" rel="noreferrer" className="block w-full rounded-full border border-white/30 py-3 text-center text-sm font-semibold text-white/80 hover:text-white">
             Share status

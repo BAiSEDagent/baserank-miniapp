@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createPublicClient, http } from 'viem'
+import { createPublicClient, http, formatUnits } from 'viem'
 import { base } from 'viem/chains'
 
 import { getEventTierConfig, type MarketKind, type TierKey } from '@/lib/event-tier'
@@ -69,7 +69,7 @@ export async function GET(_req: NextRequest) {
         tier: m.tier,
         label: `${MARKET_LABELS[m.kind]} · ${TIER_LABELS[m.tier]}`,
         address: m.address,
-        pool: (Number(totalStaked) / 1e6).toFixed(2),
+        pool: formatUnits(totalStaked, 6),
         state,
         stateLabel: STATE_LABELS[state] ?? 'Unknown',
         noWinner,
@@ -98,7 +98,13 @@ export async function GET(_req: NextRequest) {
       args: [cfg.activeEventId],
     }) as bigint
 
-    const totalPool = marketSummaries.reduce((sum, m) => sum + Number(m.pool), 0).toFixed(2)
+    const totalPoolRaw = markets.reduce((sum, _m, i) => {
+      const res = results[i * 4]
+      const totalStaked = res?.status === 'success' ? (res.result as bigint) : BigInt(0)
+      return sum + totalStaked
+    }, BigInt(0))
+
+    const totalPool = formatUnits(totalPoolRaw, 6)
 
     return NextResponse.json({
       eventId: cfg.activeEventId.toString(),
