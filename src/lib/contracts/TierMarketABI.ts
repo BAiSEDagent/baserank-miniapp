@@ -32,6 +32,16 @@ export const TierMarketABI = [
   },
   {
     type: 'function',
+    name: 'userCandidateStake',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'candidateId', type: 'bytes32' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
     name: 'candidateCount',
     stateMutability: 'view',
     inputs: [],
