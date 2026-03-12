@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Repo-specific generated/vendor noise:
+    "cache/**",
+    "contracts/cache/**",
+    "contracts/out/**",
+    "contracts/lib/**",
   ]),
 ]);
 

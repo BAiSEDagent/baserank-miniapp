@@ -1,0 +1,14 @@
+title = "BaseRank repo-local gitleaks config"
+
+[allowlist]
+description = "Ignore generated, vendored, and local-only paths that create noise in repo-local scans"
+paths = [
+  '''^\.next/''',
+  '''^out/''',
+  '''^cache/''',
+  '''^node_modules/''',
+  '''^contracts/lib/''',
+  '''^contracts/out/''',
+  '''^contracts/cache/''',
+  '''^\.env(\..*)?\.local$''',
+]

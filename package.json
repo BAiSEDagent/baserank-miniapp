@@ -19,6 +19,9 @@
     "viem": "^2.37.13",
     "wagmi": "^2.16.9"
   },
+  "overrides": {
+    "hono": "^4.12.7"
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
