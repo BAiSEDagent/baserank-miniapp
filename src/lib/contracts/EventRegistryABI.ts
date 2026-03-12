@@ -33,11 +33,16 @@ export const EventRegistryABI = [
     stateMutability: 'view',
     inputs: [{ name: 'eventId', type: 'uint256' }],
     outputs: [
+      { name: 'status', type: 'uint8' },
       { name: 'lockTime', type: 'uint256' },
       { name: 'resolveTime', type: 'uint256' },
-      { name: 'candidateCount', type: 'uint256' },
-      { name: 'resolver', type: 'address' },
-      { name: 'governance', type: 'address' },
+      { name: 'claimWindow', type: 'uint256' },
+      { name: 'submittedAt', type: 'uint256' },
+      { name: 'finalizedAt', type: 'uint256' },
+      { name: 'cancelledAt', type: 'uint256' },
+      { name: 'resolutionHash', type: 'bytes32' },
+      { name: 'snapshotHash', type: 'bytes32' },
+      { name: 'resolvedBy', type: 'address' },
     ],
   },
   {
@@ -48,8 +53,10 @@ export const EventRegistryABI = [
     outputs: [
       { name: 'lockTime', type: 'uint256' },
       { name: 'resolveTime', type: 'uint256' },
-      { name: 'claimsOpenAt', type: 'uint256' },
-      { name: 'claimDeadline', type: 'uint256' },
+      { name: 'resolutionTimeout', type: 'uint256' },
+      { name: 'claimWindow', type: 'uint256' },
+      { name: 'eventResolver', type: 'address' },
+      { name: 'eventGovernance', type: 'address' },
     ],
   },
   {

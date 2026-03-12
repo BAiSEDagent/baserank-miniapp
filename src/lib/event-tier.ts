@@ -28,8 +28,23 @@ export type CandidateMetadata = {
 export type EventTiming = {
   lockTime: bigint
   resolveTime: bigint
-  claimsOpenAt: bigint
-  claimDeadline: bigint
+  resolutionTimeout: bigint
+  claimWindow: bigint
+  eventResolver: Address
+  eventGovernance: Address
+}
+
+export type EventMeta = {
+  status: EventStatus
+  lockTime: bigint
+  resolveTime: bigint
+  claimWindow: bigint
+  submittedAt: bigint
+  finalizedAt: bigint
+  cancelledAt: bigint
+  resolutionHash: `0x${string}`
+  snapshotHash: `0x${string}`
+  resolvedBy: Address
 }
 
 export type TierMarketConfig = {
