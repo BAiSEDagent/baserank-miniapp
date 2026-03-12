@@ -386,6 +386,7 @@ contract TierMarket is Ownable2Step, ReentrancyGuard {
     // Views
     // -------------------------------------------------------------------------
 
+    /// @notice Returns number of snapshotted candidates in this market.
     function candidateCount() external view returns (uint256) {
         return candidateList.length;
     }
@@ -424,5 +425,10 @@ contract TierMarket is Ownable2Step, ReentrancyGuard {
             unchecked { ++i; }
         }
         return total;
+    }
+
+    /// @notice Disabled to prevent accidental loss of owner-controlled admin paths.
+    function renounceOwnership() public view override onlyOwner {
+        revert("RenounceDisabled");
     }
 }

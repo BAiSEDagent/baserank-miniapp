@@ -123,6 +123,9 @@ contract EventRegistry is Ownable2Step {
     // Constructor
     // -------------------------------------------------------------------------
 
+    /// @param owner_ Initial contract owner (governance multisig)
+    /// @param resolver_ Default resolver snapshotted into newly created events
+    /// @param governance_ Default governance challenger snapshotted into newly created events
     constructor(address owner_, address resolver_, address governance_) Ownable(owner_) {
         if (resolver_ == address(0) || governance_ == address(0)) revert ZeroAddress();
         resolver   = resolver_;
@@ -133,12 +136,14 @@ contract EventRegistry is Ownable2Step {
     // Admin
     // -------------------------------------------------------------------------
 
+    /// @notice Updates the default resolver for future events.
     function setResolver(address newResolver) external onlyOwner {
         if (newResolver == address(0)) revert ZeroAddress();
         emit ResolverUpdated(resolver, newResolver);
         resolver = newResolver;
     }
 
+    /// @notice Updates the default governance challenger for future events.
     function setGovernance(address newGovernance) external onlyOwner {
         if (newGovernance == address(0)) revert ZeroAddress();
         emit GovernanceUpdated(governance, newGovernance);
@@ -157,6 +162,8 @@ contract EventRegistry is Ownable2Step {
     // Event creation
     // -------------------------------------------------------------------------
 
+    /// @notice Creates a new event and snapshots resolver/governance/candidates/timing.
+    /// @param cfg Event configuration (ids, timings, candidate set).
     function createEvent(EventConfig calldata cfg) external onlyOwner {
         if (_eventExists(cfg.eventId)) revert EventAlreadyExists(cfg.eventId);
         if (cfg.candidateIds.length == 0) revert EmptyCandidateList();
@@ -314,14 +321,17 @@ contract EventRegistry is Ownable2Step {
     // Views
     // -------------------------------------------------------------------------
 
+    /// @notice Returns true when event resolution is finalized.
     function isResolved(uint256 eventId) external view returns (bool) {
         return _events[eventId].status == EventStatus.RESOLVED;
     }
 
+    /// @notice Returns true when event is cancelled.
     function isCancelled(uint256 eventId) external view returns (bool) {
         return _events[eventId].status == EventStatus.CANCELLED;
     }
 
+    /// @notice Returns current lifecycle status for an event.
     function getStatus(uint256 eventId) external view returns (EventStatus) {
         return _events[eventId].status;
     }
@@ -340,10 +350,13 @@ contract EventRegistry is Ownable2Step {
         return _events[eventId].finalRank[candidateId];
     }
 
+    /// @notice Returns event candidate snapshot.
     function candidates(uint256 eventId) external view returns (bytes32[] memory) {
         return _events[eventId].candidates;
     }
 
+    /// @notice Returns event metadata used by frontends/indexers.
+    /// @param eventId Event identifier.
     function getEventMeta(uint256 eventId)
         external
         view
@@ -394,6 +407,7 @@ contract EventRegistry is Ownable2Step {
         return openAt + e.claimWindow;
     }
 
+    /// @notice Returns number of created events.
     function eventCount() external view returns (uint256) {
         return eventIds.length;
     }
@@ -424,8 +438,14 @@ contract EventRegistry is Ownable2Step {
         return _events[eventId].candidates.length > 0;
     }
 
+    /// @dev Returns storage pointer for an existing event, reverting if it does not exist.
     function _getEvent(uint256 eventId) internal view returns (EventData storage) {
         if (!_eventExists(eventId)) revert EventDoesNotExist(eventId);
         return _events[eventId];
+    }
+
+    /// @notice Disabled to prevent accidental loss of owner-controlled admin paths.
+    function renounceOwnership() public view override onlyOwner {
+        revert("RenounceDisabled");
     }
 }
