@@ -53,6 +53,15 @@ type LeaderboardEntry = {
   tradeable?: boolean
 }
 
+
+function explorerLink(address: `0x${string}`) {
+  return `https://basescan.org/address/${address}`
+}
+
+function shortAddress(address: `0x${string}`) {
+  return `${address.slice(0, 6)}...${address.slice(-4)}`
+}
+
 function tierKeyFromSheetTier(tier: number): TierKey {
   if (tier === 1) return 'top10'
   if (tier === 2) return 'top5'
@@ -622,8 +631,23 @@ export default function Home() {
           </section>
         )}
 
-        <footer className="mt-6 border-t border-zinc-200 p-3 text-[11px] text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+        <footer className="mt-6 space-y-3 border-t border-zinc-200 p-3 text-[11px] text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
           <p>2% protocol fee. Markets resolved from official Base leaderboard snapshots.</p>
+          {eventTierConfig && (
+            <div className="space-y-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/50">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Live contracts</p>
+              <div className="grid gap-2">
+                <a href={explorerLink(eventTierConfig.registryAddress)} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 px-3 py-2 font-mono text-[11px] hover:bg-white dark:border-zinc-800 dark:hover:bg-zinc-950">
+                  <span>EventRegistry</span>
+                  <span>{shortAddress(eventTierConfig.registryAddress)}</span>
+                </a>
+                <a href={explorerLink(eventTierConfig.batchClaimerAddress)} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 px-3 py-2 font-mono text-[11px] hover:bg-white dark:border-zinc-800 dark:hover:bg-zinc-950">
+                  <span>BatchClaimer</span>
+                  <span>{shortAddress(eventTierConfig.batchClaimerAddress)}</span>
+                </a>
+              </div>
+            </div>
+          )}
         </footer>
       </div>
 

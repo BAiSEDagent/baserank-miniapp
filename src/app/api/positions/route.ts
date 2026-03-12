@@ -8,8 +8,8 @@ import { TierMarketABI } from '@/lib/contracts/TierMarketABI'
 
 export const dynamic = 'force-dynamic'
 
-const rpcUrl = process.env.PAYMASTER_URL || 'https://mainnet.base.org'
-const client = createPublicClient({ chain: base, transport: http(rpcUrl) })
+const rpcUrl = process.env.PAYMASTER_URL || (process.env.NODE_ENV !== 'production' ? 'https://mainnet.base.org' : undefined)
+const client = rpcUrl ? createPublicClient({ chain: base, transport: http(rpcUrl) }) : null
 
 const TIER_LABELS: Record<TierKey, string> = {
   top10: 'top10',
@@ -45,6 +45,8 @@ export async function GET(req: NextRequest) {
   if (!addr) return NextResponse.json({ positions: [], total: 0 })
 
   try {
+    if (!client) return NextResponse.json({ positions: [], total: 0, error: 'PAYMASTER_URL not configured for production' }, { status: 500 })
+
     const user = getAddress(addr)
     const { markets, cfg } = allMarkets()
 

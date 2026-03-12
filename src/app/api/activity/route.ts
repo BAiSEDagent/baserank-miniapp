@@ -8,8 +8,8 @@ import { EventRegistryABI } from '@/lib/contracts/EventRegistryABI'
 
 export const dynamic = 'force-dynamic'
 
-const rpcUrl = process.env.PAYMASTER_URL || 'https://mainnet.base.org'
-const client = createPublicClient({ chain: base, transport: http(rpcUrl) })
+const rpcUrl = process.env.PAYMASTER_URL || (process.env.NODE_ENV !== 'production' ? 'https://mainnet.base.org' : undefined)
+const client = rpcUrl ? createPublicClient({ chain: base, transport: http(rpcUrl) }) : null
 
 const MARKET_LABELS: Record<MarketKind, string> = {
   app: 'App Market',
@@ -38,6 +38,10 @@ type MarketSummary = {
 
 export async function GET(_req: NextRequest) {
   try {
+    if (!client) {
+      return NextResponse.json({ error: 'PAYMASTER_URL not configured for production', markets: [], totalPool: '0' }, { status: 500 })
+    }
+
     const cfg = getEventTierConfig(base.id)
 
     const markets = [
