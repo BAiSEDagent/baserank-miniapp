@@ -1,138 +1,127 @@
-# BaseRank Weekly Resolution Runbook (v1)
+# BaseRank Resolution Runbook — Event-Tier
 
 ## Scope
-Trusted-admin weekly settlement for BaseRank markets:
-- Top10
-- Top5
-- Top1
+Canonical weekly resolution flow for the audited event-tier stack:
+- `EventRegistry.sol`
+- `TierMarket.sol`
+- `BatchClaimer.sol`
 
-Market key: `(weekId, tier)`
+Markets are isolated by:
+- leaderboard kind: `app` or `chain`
+- tier: `Top 10`, `Top 5`, `#1`
 
----
+## Preconditions
+- active event already exists in `EventRegistry`
+- all 6 TierMarkets are deployed and mapped in frontend config
+- current time >= event `resolveTime`
+- official Base leaderboard source is available and verified
+- resolver wallet is ready
+- governance/challenge operator is ready
 
-## A) Preconditions
+## Canonical Candidate IDs
+Every ranked candidate ID must match the same canonical key derivation used in UI and tooling:
 
-- Market state is `Open`
-- Current time >= `resolveTime`
-- Official leaderboard source URL is available
-- Resolver wallet (owner/multisig flow) is ready
-
----
-
-## B) Build Winner Sets
-
-From the official leaderboard snapshot, construct:
-
-- `top10AppIds[]` (1-10 winners)
-- `top5AppIds[]` (1-5 winners)
-- `top1AppIds[]` (exactly 1 winner)
-
-Validation rules:
-
-- no duplicates in any set
-- every winner appId exists in that week's candidate list
-- top1 app appears in top5 and top10
-
----
-
-## C) Compute Snapshot Hash
-
-Create deterministic payload:
-
-```json
-{
-  "weekId": 12,
-  "sourceUrl": "https://www.base.dev/apps/.../leaderboard",
-  "capturedAt": "2026-03-10T16:00:00Z",
-  "top10": ["..."],
-  "top5": ["..."],
-  "top1": ["..."]
-}
+```ts
+candidateId = keccak256(abi.encodePacked("<market>:<candidateKey>"))
 ```
 
-Compute keccak256 of this canonical payload.
-Use that value as `snapshotHash` in all 3 resolve txs.
+Where:
+- `market` = `app` or `chain`
+- `candidateKey` = stable canonical identifier (not mutable display text)
 
----
+Do not derive from display name unless display name is the canonical key.
 
-## D) Resolve Tx Order (strict)
+## Resolution Flow
 
-1. Resolve Top10
-2. Resolve Top5
-3. Resolve Top1
+### 1. Verify source snapshot
+Capture:
+- source URL
+- captured timestamp
+- final ranked app ids / chain ids
+- operator identity
 
-Contract call:
+### 2. Build ranked candidate arrays
+Construct ranked arrays for the active event:
+- `appRankedCandidateIds[]`
+- `chainRankedCandidateIds[]`
 
-```solidity
-resolveMarket(weekId, tier, winners[], snapshotHash)
-```
+Validation:
+- no duplicates
+- every candidate exists in EventRegistry candidate set
+- candidate IDs were derived from canonical keys
 
-After each tx, verify:
-- tx succeeded
-- `MarketResolved` event emitted
-- `winnerCount` correct
-- `totalWinningStake` non-zero
-- `feeAmount` sensible
+### 3. Compute snapshot hash
+Hash the canonical snapshot payload offchain and keep the same `snapshotHash` for all relevant resolution submissions.
 
----
+### 4. Submit resolution to EventRegistry
+Resolver submits ranked candidate IDs.
 
-## E) Post-Resolve Validation
+Required checks:
+- tx succeeds
+- submitted rank list matches intended canonical ranking
+- `snapshotHash` matches archived payload
 
-- all 3 tier markets now `Resolved`
-- known winner account has non-zero `claimable`
-- known loser account has zero `claimable`
-- accounting invariant: `total claims + fee <= totalStake`
-- UI displays snapshot hash and resolution source
+### 5. Wait challenge window
+Do not finalize early.
+Governance may challenge if data is wrong.
 
----
+### 6. Finalize resolution
+After challenge window ends:
+- finalize EventRegistry resolution
+- verify event is now resolved
 
-## F) Fee Collection
+### 7. Resolve all 6 TierMarkets
+Resolve each isolated market:
+- app/top10
+- app/top5
+- app/top1
+- chain/top10
+- chain/top5
+- chain/top1
 
-Collect once per tier:
+Verify for each:
+- tx succeeds
+- state becomes `Resolved`
+- fee/netPool/winningStake/noWinner values are sensible
 
-```solidity
-collectFee(weekId, tier)
-```
+## Cancellation Paths
 
-Verify:
-- transfer to `FEE_RECIPIENT` (Base Safe)
-- second call reverts with fee-already-collected path
+### Challenge cancellation
+If governance challenges successfully:
+- event becomes cancelled
+- affected TierMarkets must be cancelled
+- refund path opens
 
----
+### Timeout cancellation
+If resolution is not submitted/finalized in time:
+- cancel event via timeout path
+- cancel TierMarkets
+- refund path opens
 
-## G) Transparency Post (same day)
+## Post-Resolution Validation
+- known winner has non-zero `claimable`
+- known loser has zero `claimable`
+- no-winner tiers show refund behavior
+- cancelled tiers show refund behavior
+- frontend `/api/activity` reflects updated state
+- frontend `/api/positions` reflects updated claimability
 
+## Claim Flow Validation
+- BatchClaimer preview path shows correct claimable markets
+- BatchClaimer claim path works for a known winning or refunding account
+- BatchClaimer does not retain funds
+
+## Transparency / Ops Post
 Publish:
-- weekId
+- event id
 - source URL
 - captured timestamp
 - snapshot hash
-- top10/top5/top1 winner sets
-- incident notes (if none: "No incidents")
+- resolution status
+- incident notes if any
 
----
-
-## Emergency Policy
-
-If wrong winners are submitted and finalized:
-- pause creation of the next week markets
-- publish incident report + corrective plan
-- do NOT silently patch
-
-If unresolved due to invalid inputs:
-- regenerate winners deterministically
-- rerun resolution cleanly (no partial hidden steps)
-
----
-
-## Operator Signoff Checklist
-
-- [ ] Preconditions checked
-- [ ] Winner sets validated
-- [ ] Snapshot hash computed and archived
-- [ ] Top10 resolved + verified
-- [ ] Top5 resolved + verified
-- [ ] Top1 resolved + verified
-- [ ] Claimability spot-check passed
-- [ ] Fees collected to Base Safe
-- [ ] Transparency post published
+## If Something Goes Wrong
+- do not silently patch outcomes
+- stop opening new events if resolution integrity is in doubt
+- publish incident note
+- preserve snapshot payload and tx references for auditability
